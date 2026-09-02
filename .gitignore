@@ -1,0 +1,13 @@
+# Secrets and deployment-specific runtime state
+.env
+.env.*
+keys.env
+*.log
+
+# Local dependencies and generated artifacts
+node_modules/
+coverage/
+
+# Historical diagnostics and retired v1 deployment remnants are not source.
+evidence/
+retired/

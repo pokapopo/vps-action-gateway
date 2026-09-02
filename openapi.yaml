@@ -1,0 +1,276 @@
+openapi: 3.1.0
+info:
+  title: VPS Action Gateway
+  description: "Private API for bounded VPS inspection, code maintenance, and system administration."
+  version: 1.1.0
+  contact: { name: "Private VPS Action Gateway" }
+  license: { name: "Proprietary / private use", url: "https://action.uuhalo.xyz/privacy" }
+servers:
+  - url: https://action.uuhalo.xyz/gpt
+paths:
+  /v1/health:
+    get:
+      operationId: healthCheck
+      x-openai-isConsequential: false
+      summary: "Check gateway health and capacity."
+      responses: { "200": { description: "Gateway health envelope" }, "401": { description: "Invalid bearer key" } }
+  /v1/workspace/inspect:
+    post:
+      operationId: inspectWorkspace
+      x-openai-isConsequential: false
+      summary: "Inspect a bounded directory tree; ordinary reads are allowed across the VPS."
+      requestBody: { required: false, content: { application/json: { schema: { $ref: "#/components/schemas/InspectWorkspaceRequest" } } } }
+      responses: { "200": { description: "Workspace listing" }, "401": { description: "Invalid bearer key" } }
+  /v1/system/overview:
+    post:
+      operationId: getSystemOverview
+      x-openai-isConsequential: false
+      summary: "Get VPS OS, resource, disk, and selected service overview."
+      requestBody: { required: false, content: { application/json: { schema: { $ref: "#/components/schemas/EmptyRequest" } } } }
+      responses: { "200": { description: "System overview" }, "401": { description: "Invalid bearer key" } }
+  /v1/cyberboss/monitor:
+    post:
+      operationId: getCyberbossMonitorSnapshot
+      x-openai-isConsequential: false
+      summary: "Get a bounded root-backed, read-only Cyberboss service, usage, queue, continuity/NCP, and resource snapshot."
+      requestBody: { required: false, content: { application/json: { schema: { $ref: "#/components/schemas/CyberbossMonitorRequest" } } } }
+      responses: { "200": { description: "Cyberboss monitoring snapshot" }, "401": { description: "Invalid bearer key" } }
+  /v1/logs/query:
+    post:
+      operationId: queryLogs
+      x-openai-isConsequential: false
+      summary: "Query bounded journal or log output; ordinary reads do not require approval."
+      requestBody: { required: false, content: { application/json: { schema: { $ref: "#/components/schemas/QueryLogsRequest" } } } }
+      responses: { "200": { description: "Redacted log output" }, "401": { description: "Invalid bearer key" } }
+  /v1/files/search:
+    post:
+      operationId: searchFiles
+      x-openai-isConsequential: false
+      summary: "Search filenames and text content across ordinary VPS paths."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/SearchFilesRequest" } } } }
+      responses: { "200": { description: "Search results" }, "401": { description: "Invalid bearer key" } }
+  /v1/files/read:
+    post:
+      operationId: readFile
+      x-openai-isConsequential: false
+      summary: "Read a bounded file slice with SHA-256; ordinary reads do not require approval."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ReadFileRequest" } } } }
+      responses: { "200": { description: "File content and SHA-256.", content: { application/json: { schema: { $ref: "#/components/schemas/FileReadEnvelope" } } } }, "401": { description: "Invalid bearer key" } }
+  /v1/files/patch:
+    post:
+      operationId: applyPatch
+      x-openai-isConsequential: false
+      summary: "Apply a SHA-guarded unified diff."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ApplyPatchRequest" } } } }
+      responses: { "200": { description: "Patch result with the new SHA-256.", content: { application/json: { schema: { $ref: "#/components/schemas/FileMutationEnvelope" } } } }, "401": { description: "Invalid bearer key" }, "409": { description: "SHA or patch conflict" } }
+  /v1/files/write:
+    post:
+      operationId: writeFile
+      x-openai-isConsequential: false
+      summary: "Atomically create or SHA-guard replace a file."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/WriteFileRequest" } } } }
+      responses: { "200": { description: "Write result with the new SHA-256.", content: { application/json: { schema: { $ref: "#/components/schemas/FileMutationEnvelope" } } } }, "401": { description: "Invalid bearer key" }, "409": { description: "SHA conflict" } }
+  /v1/files/delete:
+    post:
+      operationId: deletePath
+      x-openai-isConsequential: true
+      summary: "Move a file or directory to recoverable trash."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/DeletePathRequest" } } } }
+      responses: { "200": { description: "Recoverable delete result. Preserve data.trash_id exactly for restorePath.", content: { application/json: { schema: { $ref: "#/components/schemas/TrashEnvelope" } } } }, "401": { description: "Invalid bearer key" }, "409": { description: "SHA conflict" } }
+  /v1/files/restore:
+    post:
+      operationId: restorePath
+      x-openai-isConsequential: true
+      summary: "Restore an item from gateway trash."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RestorePathRequest" } } } }
+      responses: { "200": { description: "Restore result", content: { application/json: { schema: { $ref: "#/components/schemas/TrashEnvelope" } } } }, "401": { description: "Invalid bearer key" }, "409": { description: "Destination conflict" } }
+  /v1/commands/run:
+    post:
+      operationId: runCommand
+      x-openai-isConsequential: true
+      summary: "Run a bounded command as root; short commands complete inline and longer commands return next_action."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/StartJobRequest" } } } }
+      responses: { "200": { description: "Inline result, confirmation request, or structured failure.", content: { application/json: { schema: { $ref: "#/components/schemas/JobStartEnvelope" } } } }, "202": { description: "Accepted job. Follow next_action with the exact job_id.", content: { application/json: { schema: { $ref: "#/components/schemas/JobStartEnvelope" } } } }, "401": { description: "Invalid bearer key" } }
+  /v1/jobs:
+    post:
+      operationId: startJob
+      x-openai-isConsequential: true
+      summary: "Start a bounded command; wait briefly for inline completion, then fall back to an asynchronous job."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/StartJobRequest" } } } }
+      responses: { "200": { description: "Inline result, confirmation request, or structured failure.", content: { application/json: { schema: { $ref: "#/components/schemas/JobStartEnvelope" } } } }, "202": { description: "Accepted job. Follow next_action with the exact job_id.", content: { application/json: { schema: { $ref: "#/components/schemas/JobStartEnvelope" } } } }, "401": { description: "Invalid bearer key" } }
+  /v1/jobs/get:
+    post:
+      operationId: getJob
+      x-openai-isConsequential: false
+      summary: "Get bounded output and state of a job."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/GetJobRequest" } } } }
+      responses: { "200": { description: "Job state and bounded output", content: { application/json: { schema: { $ref: "#/components/schemas/JobEnvelope" } } } }, "401": { description: "Invalid bearer key" } }
+  /v1/jobs/cancel:
+    post:
+      operationId: cancelJob
+      x-openai-isConsequential: true
+      summary: "Cancel a running job."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CancelJobRequest" } } } }
+      responses: { "202": { description: "Cancellation accepted" }, "401": { description: "Invalid bearer key" } }
+  /v1/services/manage:
+    post:
+      operationId: manageService
+      x-openai-isConsequential: true
+      summary: "Inspect or manage a systemd service."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ManageServiceRequest" } } } }
+      responses: { "200": { description: "Service command output" }, "401": { description: "Invalid bearer key" } }
+  /v1/packages/manage:
+    post:
+      operationId: managePackage
+      x-openai-isConsequential: true
+      summary: "Query or manage Debian packages."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ManagePackageRequest" } } } }
+      responses: { "200": { description: "Package command output" }, "401": { description: "Invalid bearer key" } }
+  /v1/operations/batch:
+    post:
+      operationId: operationBatch
+      x-openai-isConsequential: true
+      summary: "Run up to 16 independent gateway operations concurrently; every existing operation is available except recursive batches."
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/OperationBatchRequest" } } } }
+      responses: { "200": { description: "Per-step results using the unified five-state response contract." }, "202": { description: "One or more batch steps remain asynchronous." }, "401": { description: "Invalid bearer key" } }
+components:
+  schemas:
+    EmptyRequest:
+      type: object
+      additionalProperties: false
+      properties: {}
+    CyberbossMonitorRequest:
+      type: object
+      additionalProperties: false
+      properties: { hours: { type: integer, minimum: 1, maximum: 12, default: 3 }, journal_lines: { type: integer, minimum: 20, maximum: 500, default: 200 }, recent_requests_limit: { type: integer, minimum: 1, maximum: 50, default: 20 }, recent_requests_offset: { type: integer, minimum: 0, default: 0 }, debug: { type: boolean } }
+    InspectWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      properties: { path: { type: string }, max_depth: { type: integer, minimum: 0, maximum: 6 }, max_entries: { type: integer, minimum: 1, maximum: 2000 }, approval_token: { type: string }, user_approved: { type: boolean, description: "Only set true after the user explicitly approves the requested path." } }
+    QueryLogsRequest:
+      type: object
+      additionalProperties: false
+      properties: { source: { type: string, enum: [journal, file] }, unit: { type: string }, path: { type: string }, since: { type: string }, lines: { type: integer, minimum: 1, maximum: 1000 }, approval_token: { type: string }, user_approved: { type: boolean, description: "Only set true after the user explicitly approves the requested path." } }
+    SearchFilesRequest:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties: { query: { type: string }, path: { type: string }, content: { type: boolean }, max_results: { type: integer, minimum: 1, maximum: 500 }, approval_token: { type: string }, user_approved: { type: boolean, description: "Only set true after the user explicitly approves the requested path." } }
+    ReadFileRequest:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties: { path: { type: string }, offset: { type: integer, minimum: 0 }, limit: { type: integer, minimum: 1, maximum: 65536 }, approval_token: { type: string }, user_approved: { type: boolean, description: "Only set true after the user explicitly approves the requested path." } }
+    ApplyPatchRequest:
+      type: object
+      additionalProperties: false
+      required: [path, patch, expected_sha256]
+      properties: { path: { type: string }, patch: { type: string, description: "Unified diff; first call readFile and use its data.sha256." }, expected_sha256: { type: string, description: "Exact data.sha256 from the preceding readFile." }, idempotency_key: { type: string, maxLength: 200 }, approval_token: { type: string }, user_approved: { type: boolean, description: "Only set true after the user explicitly approves the requested path." }, debug: { type: boolean } }
+    WriteFileRequest:
+      type: object
+      additionalProperties: false
+      required: [path, content]
+      properties: { path: { type: string }, content: { type: string }, expected_sha256: { type: [string, "null"], description: "For an existing file use exact data.sha256 from readFile; omit or use null only for a new file." }, idempotency_key: { type: string, maxLength: 200 }, approval_token: { type: string }, user_approved: { type: boolean, description: "Only set true after the user explicitly approves the requested path." }, debug: { type: boolean } }
+    DeletePathRequest:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties: { path: { type: string }, expected_sha256: { type: string, description: "For an existing file, use exact data.sha256 from readFile." }, idempotency_key: { type: string, maxLength: 200 }, approval_token: { type: string }, user_approved: { type: boolean, description: "Only set true after the user explicitly approves the requested path." }, debug: { type: boolean } }
+    RestorePathRequest:
+      type: object
+      additionalProperties: false
+      required: [trash_id]
+      properties: { trash_id: { type: string, description: "Exact data.trash_id returned by deletePath; never substitute a filename." }, restore_path: { type: string }, approval_token: { type: string }, user_approved: { type: boolean, description: "Only set true after the user explicitly approves the requested path." } }
+    StartJobRequest:
+      type: object
+      additionalProperties: false
+      required: [command]
+      properties: { command: { type: string }, cwd: { type: string }, timeout_seconds: { type: integer, minimum: 1, maximum: 1800 }, wait_seconds: { type: integer, minimum: 0, maximum: 30, default: 5 }, approval_token: { type: string }, user_approved: { type: boolean, description: "Only set true after the user explicitly approves the command or requested working directory." }, debug: { type: boolean } }
+    GetJobRequest:
+      type: object
+      additionalProperties: false
+      required: [job_id]
+      properties: { job_id: { type: string, description: "Exact data.job_id returned by runCommand or startJob; never use a placeholder such as latest." }, offset: { type: integer, minimum: 0 }, limit: { type: integer, minimum: 1, maximum: 65536 } }
+    CancelJobRequest:
+      type: object
+      additionalProperties: false
+      required: [job_id]
+      properties: { job_id: { type: string, description: "Exact data.job_id returned by runCommand or startJob." } }
+    ManageServiceRequest:
+      type: object
+      additionalProperties: false
+      required: [name, action]
+      properties: { name: { type: string, description: "systemd unit name, for example nginx or ssh.service." }, action: { type: string, enum: [status, start, stop, restart, reload, enable, disable] }, idempotency_key: { type: string, maxLength: 200, description: "Supported for restart retries with identical arguments." }, debug: { type: boolean } }
+    ManagePackageRequest:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties: { action: { type: string, enum: [update, install, remove, purge, status] }, packages: { type: array, description: "Required for install, remove, purge, and status; supply 1–20 Debian package names. Omit only for update.", items: { type: string }, minItems: 1, maxItems: 20 } }
+    OperationBatchRequest:
+      type: object
+      additionalProperties: false
+      required: [steps]
+      properties:
+        debug: { type: boolean }
+        steps:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, tool]
+            properties:
+              id: { type: string, pattern: "^[A-Za-z0-9_.-]{1,64}$" }
+              tool: { type: string, enum: [healthCheck, inspectWorkspace, getSystemOverview, getCyberbossMonitorSnapshot, queryLogs, searchFiles, readFile, applyPatch, writeFile, deletePath, restorePath, runCommand, startJob, getJob, cancelJob, manageService, managePackage] }
+              args: { type: object }
+    FileReadEnvelope:
+      type: object
+      required: [ok, status, data]
+      properties:
+        ok: { type: boolean }
+        status: { $ref: "#/components/schemas/ResponseStatus" }
+        data: { type: object, required: [path, sha256, content], properties: { path: { type: string }, sha256: { type: string }, content: { type: string } } }
+    FileMutationEnvelope:
+      type: object
+      required: [ok, status, data]
+      properties:
+        ok: { type: boolean }
+        status: { $ref: "#/components/schemas/ResponseStatus" }
+        data: { type: object, required: [path, sha256], properties: { path: { type: string }, sha256: { type: string } } }
+    TrashEnvelope:
+      type: object
+      required: [ok, status, data]
+      properties:
+        ok: { type: boolean }
+        status: { $ref: "#/components/schemas/ResponseStatus" }
+        data: { type: object, properties: { path: { type: string }, trash_id: { type: string }, recoverable: { type: boolean } } }
+    JobStartEnvelope:
+      type: object
+      required: [ok, status]
+      properties:
+        ok: { type: boolean }
+        status: { $ref: "#/components/schemas/ResponseStatus" }
+        next_action: { type: object, properties: { tool: { type: string }, arguments: { type: object } } }
+        error: { $ref: "#/components/schemas/StructuredError" }
+        data: { type: object, properties: { job_id: { type: string }, status: { type: string }, output: { type: string }, exit_code: { type: [integer, "null"] } } }
+    JobEnvelope:
+      type: object
+      required: [ok, status, data]
+      properties:
+        ok: { type: boolean }
+        status: { $ref: "#/components/schemas/ResponseStatus" }
+        next_action: { type: object, properties: { tool: { type: string }, arguments: { type: object } } }
+        error: { $ref: "#/components/schemas/StructuredError" }
+        data: { type: object, required: [job_id, status], properties: { job_id: { type: string }, status: { type: string }, output: { type: string }, exit_code: { type: [integer, "null"] } } }
+    ResponseStatus:
+      type: string
+      enum: [succeeded, accepted, waiting_confirmation, interrupted, failed]
+    StructuredError:
+      type: object
+      required: [code, message, retryable]
+      properties: { code: { type: string }, message: { type: string }, retryable: { type: boolean }, status: { type: integer }, details: {} }
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+security:
+  - bearerAuth: []
