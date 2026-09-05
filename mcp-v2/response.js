@@ -103,6 +103,14 @@ function renderPayload(tool, selector, result) {
       "Do not echo raw JSON to the user. First ask in plain language whether to allow this exact operation; only call approval_confirm after an explicit answer.",
     ].join("\n");
   }
+  if (result.status === "accepted") {
+    return [
+      `${tool} is still running; the task has not completed yet.`,
+      result.data?.job_id ? `Job: ${result.data.job_id}` : undefined,
+      "Continue by calling the returned next_action and report the final result only after the job reaches completed, failed, timed_out, or cancelled.",
+      result.next_action ? `Next action: ${json(result.next_action)}` : undefined,
+    ].filter(Boolean).join("\n");
+  }
   if (result.status !== "succeeded" && result.status !== "accepted") {
     return [
       `${tool} ${result.status || "failed"}: ${result.summary || result.error?.message || "unknown result"}`,

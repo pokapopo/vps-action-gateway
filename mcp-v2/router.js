@@ -15,6 +15,10 @@ const OBSERVE_VIEWS = Object.freeze({
   processes: "getProcessList",
 });
 
+// Chat-facing MCP calls get a longer first wait so short jobs finish in one
+// tool turn. The legacy backend/API defaults remain unchanged.
+const CHAT_DEFAULT_WAIT_SECONDS = 20;
+
 const DEFAULT_REGISTRY = Object.freeze({
   health: Object.freeze({ default: "healthCheck" }),
   read: READ_VIEWS,
@@ -109,7 +113,11 @@ function resolveRoute(tool, input = {}, options = {}) {
   const selector = input[selectorField];
   const action = registry[tool][selector];
   if (!action) throw invalidSelector(tool, selectorField, selector, Object.keys(registry[tool]));
-  return { action, args: clampReadArguments(action, backendArguments(input, selectorField)), selector };
+  const args = clampReadArguments(action, backendArguments(input, selectorField));
+  if (tool === "execute" && (selector === "run" || selector === "start") && args.wait_seconds === undefined) {
+    args.wait_seconds = CHAT_DEFAULT_WAIT_SECONDS;
+  }
+  return { action, args, selector };
 }
 
 function coreNextAction(nextAction) {
@@ -148,4 +156,4 @@ async function routeCoreTool(tool, input = {}, options = {}) {
   return { ...route, result: normalizeResult(result) };
 }
 
-module.exports = { BACKEND_TO_CORE, DEFAULT_REGISTRY, OBSERVE_VIEWS, READ_VIEWS, backendArguments, coreNextAction, createCapabilityRegistry, discoverCapabilities, normalizeResult, resolveRoute, routeCoreTool };
+module.exports = { BACKEND_TO_CORE, CHAT_DEFAULT_WAIT_SECONDS, DEFAULT_REGISTRY, OBSERVE_VIEWS, READ_VIEWS, backendArguments, coreNextAction, createCapabilityRegistry, discoverCapabilities, normalizeResult, resolveRoute, routeCoreTool };

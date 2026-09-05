@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { coreNextAction, createCapabilityRegistry, discoverCapabilities, resolveRoute, routeCoreTool } = require("../mcp-v2/router");
+const { CHAT_DEFAULT_WAIT_SECONDS, coreNextAction, createCapabilityRegistry, discoverCapabilities, resolveRoute, routeCoreTool } = require("../mcp-v2/router");
 
 test("read and observe selectors route only to existing backend actions", () => {
   assert.equal(resolveRoute("read", { view: "file", arguments: { path: "/tmp/a" } }).action, "readFile");
@@ -27,6 +27,11 @@ test("all stable core selectors map to existing backend actions", () => {
   assert.equal(resolveRoute("manage", { target: "package" }).action, "managePackage");
   assert.equal(resolveRoute("operation", { action: "batch" }).action, "operationBatch");
   assert.ok(discoverCapabilities(createCapabilityRegistry()).operation.includes("approval_confirm"));
+});
+
+test("chat-facing command routes wait for short jobs by default", () => {
+  assert.equal(resolveRoute("execute", { action: "run", arguments: { command: "printf ok" } }).args.wait_seconds, CHAT_DEFAULT_WAIT_SECONDS);
+  assert.equal(resolveRoute("execute", { action: "start", arguments: { command: "printf ok", wait_seconds: 0 } }).args.wait_seconds, 0);
 });
 
 test("discover and a newly registered capability work without catalog changes", async () => {
