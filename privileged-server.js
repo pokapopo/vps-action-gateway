@@ -115,10 +115,6 @@ function approvedPath(resolved, mode, approvalToken, userApproved) {
   return true;
 }
 
-function hardBlocked(resolved, mode, reason) {
-  throw new ActionError("hard_blocked", `${reason}; this path cannot be unlocked via the gateway, operate on it directly on the VPS`, 403);
-}
-
 function resolveAllowed(inputPath, mode = "write", approvalToken, userApproved = false) {
   if (typeof inputPath !== "string" || !inputPath.trim()) {
     throw new ActionError("invalid_path", "path is required");
@@ -126,7 +122,8 @@ function resolveAllowed(inputPath, mode = "write", approvalToken, userApproved =
   const resolved = path.resolve(inputPath);
   const roots = mode === "read" ? READ_ROOTS : WORKSPACE_ROOTS;
   if (mode !== "read" && sensitivePath(resolved)) {
-    hardBlocked(resolved, mode, "this path may contain credentials or identity material");
+    if (approvedPath(resolved, mode, approvalToken, userApproved)) return resolved;
+    approvalChallenge(resolved, mode, "this path may contain credentials or identity material");
   }
   if (!isWithin(resolved, roots)) {
     if (approvedPath(resolved, mode, approvalToken, userApproved)) return resolved;
@@ -135,20 +132,12 @@ function resolveAllowed(inputPath, mode = "write", approvalToken, userApproved =
   return resolved;
 }
 
-function resolvePreflightPath(inputPath, mode = "write") {
+function resolvePreflightPath(inputPath) {
   if (typeof inputPath !== "string" || !inputPath.trim()) throw new ActionError("invalid_path", "path is required");
-  const resolved = path.resolve(inputPath);
-  if (sensitivePath(resolved)) hardBlocked(resolved, mode, "this path may contain credentials or identity material");
-  return resolved;
-}
-
-function authorizePreflightPath(resolved, mode, approvalToken, userApproved) {
-  const roots = mode === "read" ? READ_ROOTS : WORKSPACE_ROOTS;
-  if (!isWithin(resolved, roots)) {
-    if (approvedPath(resolved, mode, approvalToken, userApproved)) return resolved;
-    approvalChallenge(resolved, mode, `${mode} access is restricted to configured gateway roots`);
-  }
-  return resolved;
+  // Sensitive-path and out-of-root gating happens in authorizeWriteTarget, the
+  // single authorization choke point shared by write and patch, so an
+  // operator-approved retry consumes exactly one approval.
+  return path.resolve(inputPath);
 }
 
 async function assertNoSymlinkEscape(target, roots = [...new Set([...WORKSPACE_ROOTS, ...READ_ROOTS])]) {
@@ -170,32 +159,8 @@ async function sha256File(filePath) {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
-async function existingDirectoryFor(target) {
-  let cursor = path.dirname(target);
-  while (cursor !== path.dirname(cursor)) {
-    try {
-      const stat = await fsp.stat(cursor);
-      if (!stat.isDirectory()) throw new ActionError("parent_not_directory", "a target parent is not a directory");
-      return cursor;
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      cursor = path.dirname(cursor);
-    }
-  }
-  return cursor;
-}
-
-async function assertActuallyWritable(target) {
-  const directory = await existingDirectoryFor(target);
-  const probe = path.join(directory, `.vps-action-write-probe-${crypto.randomUUID()}`);
-  try {
-    const handle = await fsp.open(probe, "wx", 0o600);
-    await handle.close();
-  } catch (error) {
-    throw new ActionError("write_preflight_failed", "target filesystem is not writable by the gateway service", 403, { path: target, cause: error.code || "UNKNOWN" });
-  } finally {
-    await fsp.unlink(probe).catch(() => {});
-  }
+function authorizeWriteTarget(resolved, mode, approvalToken, userApproved) {
+  return resolveAllowed(resolved, mode, approvalToken, userApproved);
 }
 
 async function atomicWrite(filePath, content, created) {
@@ -295,8 +260,7 @@ async function writeFileAction(args) {
   if (!exists && args.expected_sha256 !== null && args.expected_sha256 !== undefined) {
     throw new ActionError("new_file_conflict", "expected_sha256 must be null or omitted for a new file", 409);
   }
-  await assertActuallyWritable(filePath);
-  authorizePreflightPath(filePath, "write", args.approval_token, args.user_approved === true);
+  await authorizeWriteTarget(filePath, "write", args.approval_token, args.user_approved === true);
   return atomicWrite(filePath, args.content, !exists);
 }
 
@@ -317,19 +281,16 @@ async function startJob(args, action = "startJob") {
   if (typeof args.command !== "string" || !args.command.trim()) throw new ActionError("invalid_command", "command is required");
   if (Buffer.byteLength(args.command) > 16 * 1024) throw new ActionError("command_too_large", "command exceeds 16 KiB", 413);
   const policy = evaluateCommand(args.command.trim(), commandPolicy);
-  if (policy.decision === "deny") {
-    throw new ActionError("policy_denied", policy.unsafe ? "command contains shell syntax that cannot be safely audited" : "command matches a deny policy rule", 403, { command_policy: commandPolicyData(policy) });
-  }
   if (policy.decision === "confirm" && args.user_approved !== true) {
     const retry = { command: args.command, user_approved: true };
     for (const key of ["cwd", "timeout_seconds", "wait_seconds", "approval_token"]) {
       if (args[key] !== undefined) retry[key] = args[key];
     }
     return problem(action, "waiting_confirmation", "COMMAND_CONFIRMATION_REQUIRED", "command policy requires explicit user confirmation", {
-      retryable: true,
-      errorStatus: 409,
-      data: { command: args.command.trim(), command_policy: commandPolicyData(policy), confirmation_required: true },
-      nextAction: { tool: action, arguments: retry },
+        retryable: true,
+        errorStatus: 409,
+        data: { command: args.command.trim(), command_policy: commandPolicyData(policy), confirmation_required: true },
+        nextAction: { tool: action, arguments: retry },
     });
   }
   if (activeJobCount() >= MAX_CONCURRENT_JOBS) throw new ActionError("job_capacity", "two jobs are already running", 429);
@@ -493,6 +454,44 @@ async function getSystemOverview() {
   return envelope("getSystemOverview", {
     hostname: os.hostname(), platform: os.platform(), release: os.release(), uptime_seconds: Math.floor(os.uptime()),
     load_average: os.loadavg(), memory: { total_bytes: os.totalmem(), free_bytes: os.freemem() }, disks, services: status,
+  });
+}
+
+// Read-only process inspection so observation never needs the gated execute
+// channel. Runs a bounded `ps` and redacts anything token-like from cmdlines.
+async function getProcessList(args) {
+  const match = typeof args?.match === "string" ? args.match.trim().toLowerCase() : "";
+  const limit = Math.min(Math.max(Number.isInteger(args?.limit) ? args.limit : 200, 1), 500);
+  const { stdout } = await execFileAsync("/bin/ps", ["-eo", "pid=,ppid=,user=,stat=,pcpu=,pmem=,etime=,args="], { timeout: 10000, maxBuffer: 1024 * 1024 });
+  const rows = [];
+  for (const line of stdout.split("\n")) {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length < 7) continue;
+    if (!/^\d+$/.test(fields[0]) || !/^\d+$/.test(fields[1])) continue;
+    const rawCommand = fields.slice(7).join(" ") || "";
+    const redacted = redact(rawCommand);
+    rows.push({
+      pid: Number(fields[0]),
+      ppid: Number(fields[1]),
+      user: fields[2],
+      stat: fields[3],
+      cpu: Number(fields[4]),
+      memory: Number(fields[5]),
+      elapsed: fields[6],
+      command: redacted.value,
+      ...(redacted.redactions ? { redactions: redacted.redactions } : {}),
+    });
+  }
+  const filtered = match
+    ? rows.filter((row) => row.command.toLowerCase().includes(match) || row.user.toLowerCase().includes(match))
+    : rows;
+  const processes = filtered.slice(0, limit);
+  return envelope("getProcessList", {
+    match: match || null,
+    matched_total: filtered.length,
+    count: processes.length,
+    truncated: filtered.length > processes.length,
+    processes,
   });
 }
 
@@ -863,8 +862,7 @@ async function applyPatch(args) {
   if (typeof args.expected_sha256 !== "string") throw new ActionError("expected_sha_required", "expected_sha256 is required", 409, { current_sha256: currentSha });
   if (args.expected_sha256 !== currentSha) throw new ActionError("sha_conflict", "file changed since it was read", 409, { current_sha256: currentSha });
   const updated = applyUnifiedPatch(current, args.patch);
-  await assertActuallyWritable(filePath);
-  authorizePreflightPath(filePath, "write", args.approval_token, args.user_approved === true);
+  await authorizeWriteTarget(filePath, "write", args.approval_token, args.user_approved === true);
   return atomicWrite(filePath, updated, false);
 }
 
@@ -959,7 +957,7 @@ async function managePackage(args) {
 }
 
 const BATCH_ACTIONS = new Set([
-  "healthCheck", "inspectWorkspace", "getSystemOverview", "getCyberbossMonitorSnapshot", "queryLogs", "searchFiles", "readFile",
+  "healthCheck", "inspectWorkspace", "getSystemOverview", "getProcessList", "getCyberbossMonitorSnapshot", "queryLogs", "searchFiles", "readFile",
   "applyPatch", "writeFile", "deletePath", "restorePath", "runCommand", "startJob", "getJob", "cancelJob",
   "manageService", "managePackage",
 ]);
@@ -984,7 +982,7 @@ async function operationBatch(args) {
 }
 
 const actions = {
-  healthCheck, inspectWorkspace, getSystemOverview, getCyberbossMonitorSnapshot, queryLogs, searchFiles,
+  healthCheck, inspectWorkspace, getSystemOverview, getProcessList, getCyberbossMonitorSnapshot, queryLogs, searchFiles,
   readFile: readFileAction, applyPatch, writeFile: writeFileAction,
   deletePath, restorePath, runCommand: (args) => startJob(args, "runCommand"), startJob, getJob, cancelJob,
   manageService, managePackage, operationBatch,

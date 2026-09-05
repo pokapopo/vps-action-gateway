@@ -22,6 +22,7 @@ test("stateless initialize and tools/list never require or issue an MCP session"
   const initialized = await rpc(1, "initialize", { protocolVersion: "2025-06-18" });
   assert.equal(initialized.body.result.serverInfo.name, "vps-action-mcp-v2");
   assert.deepEqual(initialized.body.result.capabilities.tools, {});
+  assert.equal(initialized.body.result.capabilities.resources, undefined);
   assert.equal(initialized.response.headers.get("mcp-session-id"), null);
   const listed = await rpc(2, "tools/list", {}, { "mcp-session-id": "ignored-stale-session" });
   assert.equal(listed.body.result.tools.length, 9);

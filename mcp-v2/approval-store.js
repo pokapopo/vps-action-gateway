@@ -20,6 +20,7 @@ function publicApproval(record) {
     fingerprint: record.fingerprint,
     created_at: record.created_at,
     expires_at: record.expires_at,
+    ...(record.decision ? { decision: record.decision } : {}),
     ...(record.completed_at ? { completed_at: record.completed_at } : {}),
     ...(record.result ? { result: record.result } : {}),
   };
@@ -124,7 +125,7 @@ class ApprovalStore {
     });
   }
 
-  async approveAndConsume(id) {
+  async approveAndConsume(id, decision = "allow") {
     await this.load();
     return this.withLock(async () => {
       const record = this.records.get(id);
@@ -132,6 +133,7 @@ class ApprovalStore {
       this.expireLocked();
       if (record.state === "consumed") return { kind: "replay", record, public: publicApproval(record) };
       if (record.state !== "pending") return { kind: record.state, record, public: publicApproval(record) };
+      record.decision = decision;
       record.state = "approved";
       await this.persistLocked();
       // Persist consumed before dispatch. If the process dies during the backend

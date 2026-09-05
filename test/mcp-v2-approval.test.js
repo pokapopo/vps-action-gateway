@@ -17,11 +17,11 @@ async function fixture(t, options = {}) {
   return new ApprovalStore(path.join(root, "approvals.json"), options);
 }
 
-test("ordinary v2 edits are advertised as non-destructive", () => {
+test("v2 edits are advertised as host-approved mutations", () => {
   const edit = getCoreCatalog().find((tool) => tool.name === "edit");
   assert.equal(edit.annotations.readOnlyHint, false);
-  assert.equal(edit.annotations.destructiveHint, false);
-  assert.match(edit.description, /without approval/);
+  assert.equal(edit.annotations.destructiveHint, true);
+  assert.match(edit.description, /host's native tool approval/);
 });
 
 test("approval store persists five-state, fingerprint-bound records without public request data", async (t) => {
@@ -51,7 +51,7 @@ test("pending approvals expire and can be cancelled", async (t) => {
   assert.equal((await cancellableStore.cancel(two.approval_id)).state, "cancelled");
 });
 
-test("backend challenge becomes an approval_id and confirm injects gateway fields server-side", async (t) => {
+test("backend challenge is consumed inside the host-approved tool call", async (t) => {
   const store = await fixture(t);
   const calls = [];
   const backend = async (_socket, action, args) => {
@@ -60,22 +60,16 @@ test("backend challenge becomes an approval_id and confirm injects gateway field
     return { ok: true, status: "succeeded", summary: "done", data: { path: args.path, sha256: "new-sha" }, warnings: [] };
   };
   const first = await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "edit", arguments: { action: "write", arguments: { path: "/tmp/a", content: "hello" } } } }, { approvalStore: store, callBackend: backend, log: false });
-  const approvalId = first.result.structuredContent.data.approval_id;
-  assert.match(approvalId, /^ap_/);
+  assert.equal(first.result.structuredContent.status, "succeeded");
   assert.doesNotMatch(JSON.stringify(first), /backend-secret/);
   assert.doesNotMatch(JSON.stringify(first), /approval_token/);
-  const confirmed = await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "operation", arguments: { action: "approval_confirm", arguments: { approval_id: approvalId, decision: "approve" } } } }, { approvalStore: store, callBackend: backend, log: false });
-  assert.equal(confirmed.result.structuredContent.status, "succeeded");
   assert.equal(calls.length, 2);
   assert.equal(calls[1].args.user_approved, true);
   assert.equal(calls[1].args.approval_token, "backend-secret");
   assert.equal(calls[1].args.content, "hello");
-  const replay = await handleRpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "operation", arguments: { action: "approval_confirm", arguments: { approval_id: approvalId } } } }, { approvalStore: store, callBackend: backend, log: false });
-  assert.equal(replay.result.structuredContent.data.sha256, "new-sha");
-  assert.equal(calls.length, 2);
 });
 
-test("real out-of-root patch approval_id confirms against the same normalized path", async (t) => {
+test("real out-of-root patch completes in one host-approved tool call", async (t) => {
   const store = await fixture(t);
   const target = path.join(os.tmpdir(), `mcp-v2-approved-patch-${process.pid}-${Date.now()}.txt`);
   await fsp.writeFile(target, "one\ntwo\n", "utf8");
@@ -95,11 +89,7 @@ test("real out-of-root patch approval_id confirms against the same normalized pa
     }
   };
   const first = await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "edit", arguments: { action: "patch", arguments: { path: target, expected_sha256: expectedSha, patch: "@@ -1,2 +1,2 @@\n one\n-two\n+changed\n" } } } }, { approvalStore: store, callBackend, log: false });
-  assert.equal(first.result.structuredContent.status, "waiting_confirmation");
-  assert.equal(first.result.structuredContent.data.target, target);
-  const approvalId = first.result.structuredContent.data.approval_id;
-  const confirmed = await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "operation", arguments: { action: "approval_confirm", arguments: { approval_id: approvalId, decision: "approve" } } } }, { approvalStore: store, callBackend, log: false });
-  assert.equal(confirmed.result.structuredContent.status, "succeeded");
+  assert.equal(first.result.structuredContent.status, "succeeded");
   assert.equal(await fsp.readFile(target, "utf8"), "one\nchanged\n");
 });
 
@@ -110,4 +100,108 @@ test("explicit prepare never dispatches before semantic confirmation", async (t)
   const prepared = await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "operation", arguments: { action: "approval_prepare", arguments: { request: { tool: "move_out", arguments: { action: "delete", arguments: { path: "/tmp/a", expected_sha256: crypto.randomBytes(32).toString("hex") } } } } } } }, { approvalStore: store, callBackend: backend, log: false });
   assert.equal(prepared.result.structuredContent.status, "waiting_confirmation");
   assert.equal(calls, 0);
+});
+
+function confirmingBackend() {
+  const calls = [];
+  const backend = async (_socket, action, args) => {
+    calls.push({ action, args });
+    if (!args.user_approved) {
+      return { ok: false, status: "waiting_confirmation", summary: "confirm", data: { approval_token: "t-" + calls.length, requested_path: args.path || "/tmp/a" }, warnings: [] };
+    }
+    return { ok: true, status: "succeeded", summary: "done", data: { path: args.path || "/tmp/a", sha256: `sha-${calls.length}` }, warnings: [] };
+  };
+  return { backend, calls };
+}
+
+function prepareCall(id, tool = "edit") {
+  return { jsonrpc: "2.0", id, method: "tools/call", params: { name: "operation", arguments: { action: "approval_prepare", arguments: { request: { tool, arguments: { action: "write", arguments: { path: "/tmp/a", content: "x" } } } } } } };
+}
+
+function confirmCall(id, arguments_) {
+  return { jsonrpc: "2.0", id, method: "tools/call", params: { name: "operation", arguments: { action: "approval_confirm", arguments: arguments_ } } };
+}
+
+test("approval_confirm accepts allow/confirm/deny decisions and records the decision", async (t) => {
+  const store = await fixture(t);
+  const { backend, calls } = confirmingBackend();
+  const prep = async (id) => (await handleRpc(prepareCall(id), { approvalStore: store, callBackend: backend, log: false })).result.structuredContent.data.approval_id;
+  const first = await prep(1);
+  const second = await prep(2);
+  const third = await prep(3);
+  assert.equal(calls.length, 0);
+
+  const allowed = await handleRpc(confirmCall(11, { approval_id: first, decision: "allow" }), { approvalStore: store, callBackend: backend, log: false });
+  assert.equal(allowed.result.structuredContent.status, "succeeded");
+  assert.equal((await store.status(first)).decision, "allow");
+
+  const confirmed = await handleRpc(confirmCall(12, { approval_id: second, decision: "confirm" }), { approvalStore: store, callBackend: backend, log: false });
+  assert.equal(confirmed.result.structuredContent.status, "succeeded");
+  assert.equal((await store.status(second)).decision, "confirm");
+
+  const denied = await handleRpc(confirmCall(13, { approval_id: third, decision: "deny" }), { approvalStore: store, callBackend: backend, log: false });
+  assert.equal(denied.result.structuredContent.status, "interrupted");
+  assert.equal((await store.status(third)).state, "cancelled");
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].args.user_approved, true);
+  assert.equal(calls[1].args.user_approved, true);
+  assert.equal(calls[0].args.content, "x");
+  assert.equal(calls[1].args.content, "x");
+});
+
+test("approval_confirm supports batch approval_ids with allow and partial deny", async (t) => {
+  const store = await fixture(t);
+  const { backend, calls } = confirmingBackend();
+  const prep = async (id) => (await handleRpc(prepareCall(id), { approvalStore: store, callBackend: backend, log: false })).result.structuredContent.data.approval_id;
+  const first = await prep(1);
+  const second = await prep(2);
+  const third = await prep(3);
+
+  const batched = await handleRpc(confirmCall(21, { approval_ids: [first, second, "ap_missing"], decision: "allow" }), { approvalStore: store, callBackend: backend, log: false });
+  const data = batched.result.structuredContent.data;
+  assert.equal(batched.result.structuredContent.status, "succeeded");
+  assert.equal(data.confirmed, 2);
+  assert.equal(data.missing, 1);
+  assert.equal(calls.length, 2);
+
+  const replayBatch = await handleRpc(confirmCall(22, { approval_ids: [first, second], decision: "allow" }), { approvalStore: store, callBackend: backend, log: false });
+  assert.equal(replayBatch.result.structuredContent.status, "succeeded");
+  assert.equal(replayBatch.result.structuredContent.data.confirmed, 2);
+  assert.equal(calls.length, 2);
+
+  const deniedBatch = await handleRpc(confirmCall(23, { approval_ids: [third, "ap_missing"], decision: "deny" }), { approvalStore: store, callBackend: backend, log: false });
+  assert.equal(deniedBatch.result.structuredContent.status, "interrupted");
+  assert.equal(deniedBatch.result.structuredContent.data.denied, 1);
+  assert.equal(deniedBatch.result.structuredContent.data.missing, 1);
+});
+
+test("mutating tools use native host approval and return no materialized HTML attachment", async (t) => {
+  const store = await fixture(t);
+  const backend = async (_socket, action, args) => {
+    if (!args.user_approved) return { ok: false, status: "waiting_confirmation", summary: "confirm", data: { approval_token: "backend-secret", requested_path: args.path }, warnings: [] };
+    return { ok: true, status: "succeeded", summary: "done", data: { path: args.path }, warnings: [] };
+  };
+  const result = await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "edit", arguments: { action: "write", arguments: { path: "/tmp/a", content: "hello" } } } }, { approvalStore: store, callBackend: backend, log: false });
+  assert.equal(result.result.structuredContent.status, "succeeded");
+  assert.equal((result.result.content || []).some((item) => item.type === "resource"), false);
+  const tools = (await handleRpc({ jsonrpc: "2.0", id: 10, method: "tools/list" }, { log: false })).result.tools;
+  for (const name of ["edit", "move_out", "execute", "manage", "operation"]) {
+    const tool = tools.find((item) => item.name === name);
+    assert.equal(tool.annotations.destructiveHint, true);
+    assert.equal(tool._meta, undefined);
+  }
+  const listed = await handleRpc({ jsonrpc: "2.0", id: 11, method: "resources/list" }, { log: false });
+  assert.equal(listed.error.code, -32601);
+});
+
+test("approval_confirm rejects missing and unknown decisions", async (t) => {
+  const store = await fixture(t);
+  const { backend } = confirmingBackend();
+  const approvalId = (await handleRpc(prepareCall(1), { approvalStore: store, callBackend: backend, log: false })).result.structuredContent.data.approval_id;
+  for (const decision of [undefined, "typo"]) {
+    const response = await handleRpc(confirmCall(2, { approval_id: approvalId, ...(decision === undefined ? {} : { decision }) }), { approvalStore: store, callBackend: backend, log: false });
+    assert.equal(response.result.structuredContent.error.code, "APPROVAL_DECISION_REQUIRED");
+    assert.equal((await store.status(approvalId)).state, "pending");
+  }
 });

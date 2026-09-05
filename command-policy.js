@@ -10,21 +10,21 @@ function unquote(value) {
 }
 
 function parsePolicy(text) {
-  const policy = { default: "confirm", allow: [], confirm: [], deny: [] };
+  const policy = { default: "confirm", allow: [], confirm: [] };
   let section = "";
   for (const rawLine of String(text || "").split(/\r?\n/)) {
     const withoutComment = rawLine.replace(/\s+#.*$/, "");
     const trimmed = withoutComment.trim();
     if (!trimmed || trimmed === "commands:") continue;
-    const sectionMatch = trimmed.match(/^(allow|confirm|deny):\s*$/);
+    const sectionMatch = trimmed.match(/^(allow|confirm):\s*$/);
     if (sectionMatch) { section = sectionMatch[1]; continue; }
     const defaultMatch = trimmed.match(/^default:\s*(.+)$/);
     if (defaultMatch) { policy.default = unquote(defaultMatch[1]).toLowerCase(); continue; }
     const itemMatch = trimmed.match(/^-\s*(.+)$/);
     if (itemMatch && section) policy[section].push(unquote(itemMatch[1]));
   }
-  if (!["allow", "confirm", "deny"].includes(policy.default)) throw new Error("commands.default must be allow, confirm, or deny");
-  for (const key of ["allow", "confirm", "deny"]) {
+  if (!["allow", "confirm"].includes(policy.default)) throw new Error("commands.default must be allow or confirm");
+  for (const key of ["allow", "confirm"]) {
     policy[key] = policy[key].map((source) => {
       try { return new RegExp(source); } catch (error) { throw new Error(`invalid ${key} command regex ${source}: ${error.message}`); }
     });
@@ -87,7 +87,6 @@ function commandSegments(command) {
 }
 
 function matchSegment(segment, policy) {
-  if (policy.deny.some((rule) => rule.test(segment))) return "deny";
   if (policy.confirm.some((rule) => rule.test(segment))) return "confirm";
   if (policy.allow.some((rule) => rule.test(segment))) return "allow";
   return policy.default;
@@ -95,10 +94,9 @@ function matchSegment(segment, policy) {
 
 function evaluateCommand(command, policy) {
   const parsed = commandSegments(command);
-  if (parsed.unsafe) return { decision: "deny", unsafe: true, segments: [] };
+  if (parsed.unsafe) return { decision: "confirm", unsafe: true, segments: [] };
   const segments = parsed.segments.map((value) => ({ command: value, decision: matchSegment(value, policy) }));
-  const decision = segments.some((item) => item.decision === "deny") ? "deny"
-    : segments.some((item) => item.decision === "confirm") ? "confirm"
+  const decision = segments.some((item) => item.decision === "confirm") ? "confirm"
       : "allow";
   return { decision, unsafe: false, segments };
 }

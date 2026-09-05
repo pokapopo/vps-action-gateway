@@ -86,13 +86,24 @@ test("Cyberboss monitor is root-backed, bounded, read-only, and exposes paginate
   assert.equal(snapshot.data.command, undefined);
 });
 
-test("identity material is readable without approval but remains blocked for writes", async () => {
+test("identity material is readable without approval and its writes escalate to approval, not a hard deny", async () => {
   const read = await dispatch("readFile", { path: "/etc/shadow" });
   assert.equal(read.status, "succeeded");
   await assert.rejects(
     dispatch("writeFile", { path: "/etc/shadow", content: "blocked", expected_sha256: read.data.sha256 }),
-    (error) => error.code === "hard_blocked" && error.status === 403,
+    (error) => error.code === "approval_required" && error.status === 409 && Boolean(error.details?.approval_token),
   );
+});
+
+test("sensitive in-root writes are approvable, never refused outright", async () => {
+  const target = path.join(root, `sensitive-write-${process.pid}/.env`);
+  const first = await new Promise((resolve) => dispatch("writeFile", { path: target, content: "SECRET=1" }).catch(resolve));
+  assert.equal(first.code, "approval_required");
+  assert.equal(first.status, 409);
+  const approved = await dispatch("writeFile", { path: target, content: "SECRET=1", approval_token: first.details.approval_token, user_approved: true });
+  assert.equal(approved.ok, true);
+  await fsp.unlink(target);
+  await fsp.rmdir(path.dirname(target));
 });
 
 test("out-of-root access requires and consumes explicit approval", async () => {
@@ -114,8 +125,24 @@ test("write and patch failures are rejected before an out-of-root approval is is
   await fsp.writeFile(target, "one\ntwo\n", "utf8");
   const sha = (await dispatch("readFile", { path: target })).data.sha256;
   await assert.rejects(dispatch("applyPatch", { path: target, expected_sha256: sha, patch: "not a patch" }), (error) => error.code === "patch_invalid");
-  await assert.rejects(dispatch("writeFile", { path: "/sys/vps-action-preflight.txt", content: "x" }), (error) => error.code === "write_preflight_failed" && ["EACCES", "EROFS"].includes(error.details.cause));
   await fsp.unlink(target);
+});
+
+test("out-of-root unwritable paths require approval before surfacing the real filesystem error", async () => {
+  // Authorization happens before any writable probe, so the first call cannot
+  // create even a temporary file outside the configured roots.
+  const first = await new Promise((resolve) => dispatch("writeFile", { path: "/sys/vps-action-preflight.txt", content: "x" }).catch(resolve));
+  assert.equal(first.code, "approval_required");
+  assert.equal(first.status, 409);
+  assert.ok(first.details.approval_token);
+  const second = await new Promise((resolve) => dispatch("writeFile", {
+    path: "/sys/vps-action-preflight.txt", content: "x", approval_token: first.details.approval_token, user_approved: true,
+  }).catch(resolve));
+  assert.ok(second instanceof Error || second.code !== "approval_required");
+  // The approval consumed the challenge; the real write now hits the read-only
+  // filesystem and must fail with a true fs error rather than a policy deny.
+  const realError = second instanceof Error ? second.code : second.error?.details?.cause;
+  assert.ok(["EACCES", "EROFS"].includes(realError));
 });
 
 test("out-of-root applyPatch consumes one exact-path approval and succeeds", async () => {
@@ -181,10 +208,10 @@ test("ordinary file and script edits are non-destructive tools", () => {
   }
 });
 
-test("command policy orders deny, confirm, allow, and default per segment", () => {
+test("command policy has only allow and confirm outcomes", () => {
   assert.equal(evaluateCommand("git status", commandPolicy).decision, "allow");
   assert.equal(evaluateCommand("git status && git push origin main", commandPolicy).decision, "confirm");
-  assert.equal(evaluateCommand("git status && reboot", commandPolicy).decision, "deny");
+  assert.equal(evaluateCommand("git status && reboot", commandPolicy).decision, "confirm");
   assert.equal(evaluateCommand("printf hello", commandPolicy).decision, "confirm");
   assert.equal(evaluateCommand("git status | cat", commandPolicy).decision, "confirm");
   assert.equal(evaluateCommand("git status | systemctl is-active cyberboss", commandPolicy).decision, "allow");
@@ -205,10 +232,43 @@ test("command policy orders deny, confirm, allow, and default per segment", () =
   assert.equal(evaluateCommand("grep -R TODO /root/cyberboss/src | tee /tmp/todos", commandPolicy).decision, "confirm");
   assert.equal(evaluateCommand("systemctl status cyberboss && ss -lntp", commandPolicy).decision, "allow");
   assert.equal(evaluateCommand("systemctl restart cyberboss && ss -lntp", commandPolicy).decision, "confirm");
-  assert.equal(evaluateCommand("git status > /tmp/status", commandPolicy).decision, "deny");
-  assert.equal(evaluateCommand("git status & reboot", commandPolicy).decision, "deny");
-  assert.equal(evaluateCommand("git status $(reboot)", commandPolicy).decision, "deny");
-  assert.equal(evaluateCommand("git status `reboot`", commandPolicy).decision, "deny");
+  assert.equal(evaluateCommand("git status > /tmp/status", commandPolicy).decision, "confirm");
+  assert.equal(evaluateCommand("git status & reboot", commandPolicy).decision, "confirm");
+  assert.equal(evaluateCommand("git status $(reboot)", commandPolicy).decision, "confirm");
+  assert.equal(evaluateCommand("git status `reboot`", commandPolicy).decision, "confirm");
+});
+
+test("read-only inspection commands are allow-listed so they never gate", () => {
+  for (const cmd of [
+    "ps aux",
+    "ps aux | grep chromium",
+    "ps -ef | grep -i chrome",
+    "pgrep -a chromium",
+    "df -h",
+    "lsblk",
+    "systemctl status cyberboss",
+  ]) {
+    assert.equal(evaluateCommand(cmd, commandPolicy).decision, "allow", cmd);
+  }
+});
+
+test("formerly blocked administrative commands use the normal confirmation flow", async () => {
+  const waiting = await dispatch("startJob", { command: "reboot" });
+  assert.equal(waiting.status, "waiting_confirmation");
+  assert.equal(waiting.data.command_policy.decision, "confirm");
+  assert.equal(waiting.error.code, "COMMAND_CONFIRMATION_REQUIRED");
+});
+
+test("getProcessList observes running processes read-only and supports a match filter", async () => {
+  const all = await dispatch("getProcessList", {});
+  assert.equal(all.ok, true);
+  assert.equal(all.status, "succeeded");
+  assert.ok(Array.isArray(all.data.processes));
+  assert.ok(all.data.processes.some((row) => row.pid === 1));
+  const filtered = await dispatch("getProcessList", { match: "node" });
+  assert.equal(filtered.ok, true);
+  assert.ok(filtered.data.matched_total > 0);
+  assert.ok(filtered.data.processes.every((row) => /node/i.test(row.command)));
 });
 
 test("startJob returns short output inline and long work with next_action", async () => {

@@ -12,6 +12,7 @@ const OBSERVE_VIEWS = Object.freeze({
   system: "getSystemOverview",
   cyberboss: "getCyberbossMonitorSnapshot",
   logs: "queryLogs",
+  processes: "getProcessList",
 });
 
 const DEFAULT_REGISTRY = Object.freeze({
@@ -41,6 +42,7 @@ const BACKEND_TO_CORE = Object.freeze({
   getSystemOverview: ["observe", ["view", "system"]],
   getCyberbossMonitorSnapshot: ["observe", ["view", "cyberboss"]],
   queryLogs: ["observe", ["view", "logs"]],
+  getProcessList: ["observe", ["view", "processes"]],
   writeFile: ["edit", ["action", "write"]],
   applyPatch: ["edit", ["action", "patch"]],
   deletePath: ["move_out", ["action", "delete"]],

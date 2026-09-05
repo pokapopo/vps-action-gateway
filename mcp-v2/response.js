@@ -91,6 +91,18 @@ function renderObserve(selector, data) {
 }
 
 function renderPayload(tool, selector, result) {
+  if (result.status === "waiting_confirmation") {
+    const pending = result.data || {};
+    const approvalId = pending.approval_id || result.next_action?.arguments?.arguments?.approval_id;
+    const operation = pending.operation || `${tool}${selector ? `:${selector}` : ""}`;
+    const target = pending.target ? ` — ${pending.target}` : "";
+    return [
+      `${tool} is waiting for your approval`,
+      `Pending: ${operation}${target}`,
+      `Approve or deny by calling operation(action=approval_confirm) with approval_id=${approvalId ?? "?"} and decision=approve/deny.`,
+      "Do not echo raw JSON to the user. First ask in plain language whether to allow this exact operation; only call approval_confirm after an explicit answer.",
+    ].join("\n");
+  }
   if (result.status !== "succeeded" && result.status !== "accepted") {
     return [
       `${tool} ${result.status || "failed"}: ${result.summary || result.error?.message || "unknown result"}`,
