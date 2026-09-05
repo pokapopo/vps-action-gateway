@@ -5,6 +5,7 @@ const { getCoreCatalog } = require("./catalog");
 const { DEFAULT_REGISTRY, discoverCapabilities, routeCoreTool } = require("./router");
 const { buildCoreFailure, buildCoreResult } = require("./response");
 const { ApprovalStore } = require("./approval-store");
+const { loadInterfaceRegistry, publicInterfaceCatalog } = require("../interface-registry");
 const oauth = require("./oauth");
 
 const HOST = process.env.VPS_MCP_V2_HOST || "127.0.0.1";
@@ -40,6 +41,9 @@ async function handleRpc(message, options = {}) {
       const routed = name === "operation" && String(args.action || "").startsWith("approval_")
         ? await handleApprovalOperation(args, { ...options, approvalStore })
         : await routeWithHostApproval(name, args, { ...options, approvalStore });
+      if (name === "discover" && routed.result?.data) {
+        routed.result.data.interfaces = publicInterfaceCatalog(await loadInterfaceRegistry());
+      }
       const v2Data = { core_tools: getCoreCatalog().map((tool) => tool.name), capabilities: discoverCapabilities(options.registry || DEFAULT_REGISTRY) };
       const result = buildCoreResult(name, routed.selector, routed.result, { debug: args.debug === true, v2Data });
       if (options.log !== false) logCall(name, routed.action, result, startedAt, args);

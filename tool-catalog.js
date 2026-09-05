@@ -50,6 +50,11 @@ function getToolCatalog() {
     tool("cancelJob", "Cancel a currently running gateway job.", { job_id: { type: "string" } }, ["job_id"], DESTRUCTIVE),
     tool("manageService", "Inspect or manage a systemd service. For restart retries, reuse idempotency_key with identical arguments.", { name: { type: "string" }, action: { type: "string", enum: ["status", "start", "stop", "restart", "reload", "enable", "disable"] }, ...idempotency }, ["name", "action"], DESTRUCTIVE),
     tool("managePackage", "Query or manage Debian packages through the system package manager.", { action: { type: "string", enum: ["update", "install", "remove", "purge", "status"] }, packages: { type: "array", items: { type: "string" }, maxItems: 20 } }, ["action"], OPEN_DESTRUCTIVE),
+    tool("invokeInterface", "Call a configured VPS facility through its named interface. The gateway supplies credentials and transport details; use the MCP discover capability to see available interfaces.", {
+      interface: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,63}$" },
+      method: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,63}$" },
+      input: { type: "object" },
+    }, ["interface", "method"], OPEN_DESTRUCTIVE),
   ];
   const batchNames = tools.map((item) => item.name);
   tools.push(tool("operationBatch", "Run 1-16 independent gateway operations concurrently. Every existing tool is available; only recursive operationBatch calls are rejected.", {

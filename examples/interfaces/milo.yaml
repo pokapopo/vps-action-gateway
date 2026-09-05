@@ -1,0 +1,15 @@
+name: milo
+description: Milo conversation service
+actions:
+  chat:
+    description: Send a message to Milo
+    transport: http
+    method: POST
+    url: http://127.0.0.1:9000/chat
+    bearer_env: MILO_API_TOKEN
+    input_schema:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string

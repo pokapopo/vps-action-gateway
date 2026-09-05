@@ -11,6 +11,7 @@ const { promisify } = require("node:util");
 const { evaluateCommand, loadPolicy } = require("./command-policy");
 const { IdempotencyStore } = require("./idempotency-store");
 const { accepted, fromError, problem, succeeded } = require("./response");
+const { invokeRegisteredInterface, loadInterfaceRegistry } = require("./interface-registry");
 
 const SOCKET_PATH = process.env.VPS_ACTION_SOCKET || "/run/vps-action-gateway/backend.sock";
 const ALLOWED_ROOT = path.resolve(process.env.VPS_ACTION_ALLOWED_ROOT || "/tmp/vps-action-feasibility");
@@ -956,10 +957,31 @@ async function managePackage(args) {
   }
 }
 
+async function invokeInterface(args) {
+  if (typeof args.interface !== "string" || !args.interface.trim()) throw new ActionError("invalid_interface", "interface is required");
+  if (typeof args.method !== "string" || !args.method.trim()) throw new ActionError("invalid_interface_method", "method is required");
+  const registry = await loadInterfaceRegistry();
+  const result = await invokeRegisteredInterface(registry, args.interface.trim(), args.method.trim(), args.input || {});
+  const bounded = boundedText(result.output);
+  const data = {
+    interface: args.interface.trim(),
+    method: args.method.trim(),
+    transport: result.transport,
+    status_code: result.status_code,
+    output: bounded.text,
+  };
+  if (result.transport === "http" && result.ok === false) {
+    return problem("invokeInterface", "failed", "INTERFACE_HTTP_ERROR", `interface returned HTTP ${result.status_code}`, {
+      retryable: result.status_code >= 500, errorStatus: 502, data, truncated: bounded.truncated, redactions: bounded.redactions,
+    });
+  }
+  return succeeded("invokeInterface", data, { truncated: bounded.truncated, redactions: bounded.redactions });
+}
+
 const BATCH_ACTIONS = new Set([
   "healthCheck", "inspectWorkspace", "getSystemOverview", "getProcessList", "getCyberbossMonitorSnapshot", "queryLogs", "searchFiles", "readFile",
   "applyPatch", "writeFile", "deletePath", "restorePath", "runCommand", "startJob", "getJob", "cancelJob",
-  "manageService", "managePackage",
+  "manageService", "managePackage", "invokeInterface",
 ]);
 
 async function operationBatch(args) {
@@ -985,7 +1007,7 @@ const actions = {
   healthCheck, inspectWorkspace, getSystemOverview, getProcessList, getCyberbossMonitorSnapshot, queryLogs, searchFiles,
   readFile: readFileAction, applyPatch, writeFile: writeFileAction,
   deletePath, restorePath, runCommand: (args) => startJob(args, "runCommand"), startJob, getJob, cancelJob,
-  manageService, managePackage, operationBatch,
+  manageService, managePackage, invokeInterface, operationBatch,
 };
 
 async function dispatch(action, args) {

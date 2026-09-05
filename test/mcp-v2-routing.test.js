@@ -26,7 +26,9 @@ test("all stable core selectors map to existing backend actions", () => {
   assert.equal(resolveRoute("manage", { target: "service" }).action, "manageService");
   assert.equal(resolveRoute("manage", { target: "package" }).action, "managePackage");
   assert.equal(resolveRoute("operation", { action: "batch" }).action, "operationBatch");
+  assert.equal(resolveRoute("operation", { action: "invoke" }).action, "invokeInterface");
   assert.ok(discoverCapabilities(createCapabilityRegistry()).operation.includes("approval_confirm"));
+  assert.ok(discoverCapabilities(createCapabilityRegistry()).operation.includes("invoke"));
 });
 
 test("chat-facing command routes wait for short jobs by default", () => {

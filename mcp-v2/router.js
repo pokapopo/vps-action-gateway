@@ -29,6 +29,7 @@ const DEFAULT_REGISTRY = Object.freeze({
   manage: Object.freeze({ service: "manageService", package: "managePackage" }),
   operation: Object.freeze({
     batch: "operationBatch",
+    invoke: "invokeInterface",
     approval_prepare: "__approval_prepare",
     approval_status: "__approval_status",
     approval_confirm: "__approval_confirm",
@@ -58,6 +59,7 @@ const BACKEND_TO_CORE = Object.freeze({
   manageService: ["manage", ["target", "service"]],
   managePackage: ["manage", ["target", "package"]],
   operationBatch: ["operation", ["action", "batch"]],
+  invokeInterface: ["operation", ["action", "invoke"]],
 });
 
 function createCapabilityRegistry(overrides = {}) {

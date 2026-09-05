@@ -72,6 +72,51 @@ Every v2 call forwards to the existing Unix-socket backend. The adapter does not
 implement file mutation, command execution, service/package operations, path
 policy, SHA guards, idempotency, jobs, trash, or credential redaction.
 
+### Custom VPS interfaces
+
+The gateway keeps a stable nine-tool MCP surface while allowing local services
+to be added through interface manifests. Copy a manifest into
+`/etc/vps-action-gateway/interfaces.d/`; the first version supports `http` and
+`command` transports. Credentials are referenced by environment variable and
+are never placed in the manifest or returned to the model.
+
+For example, an interface manifest can expose a local Milo service:
+
+```yaml
+name: milo
+description: Milo conversation service
+actions:
+  chat:
+    description: Send a message to Milo
+    transport: http
+    method: POST
+    url: http://127.0.0.1:9000/chat
+    bearer_env: MILO_API_TOKEN
+    input_schema:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+```
+
+The MCP client calls one stable operation and the gateway resolves the
+configured transport:
+
+```json
+{
+  "action": "invoke",
+  "arguments": {
+    "interface": "milo",
+    "method": "chat",
+    "input": { "message": "你好" }
+  }
+}
+```
+
+`discover` reports configured interfaces and their actions. It is not required
+before every invocation, so a client can call a known facility in one turn.
+
 V2 Streamable HTTP is stateless: each POST handles `initialize`, `tools/list`,
 or `tools/call` independently. It does not issue `Mcp-Session-Id`, keep SSE
 streams, advertise `listChanged`, or depend on catalog notifications.

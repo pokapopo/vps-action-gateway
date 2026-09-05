@@ -121,7 +121,7 @@ function renderPayload(tool, selector, result) {
   if (tool === "health") return renderHealth(result.data);
   if (tool === "read") return renderRead(selector, result.data);
   if (tool === "observe") return renderObserve(selector, result.data);
-  if (tool === "discover") return ["Current server-side capabilities", json(result.data?.capabilities || {})].join("\n");
+  if (tool === "discover") return ["Current server-side capabilities", json({ capabilities: result.data?.capabilities || {}, interfaces: result.data?.interfaces || [] })].join("\n");
   return [`${tool} ${result.status}`, json(result.data || {})].join("\n");
 }
 

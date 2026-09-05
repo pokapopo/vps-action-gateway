@@ -51,7 +51,7 @@ function getCoreCatalog() {
     coreTool("move_out", "Move a path to recoverable trash or restore it. Select with action.", "action", DESTRUCTIVE),
     coreTool("execute", "Run a command or start, inspect, or cancel a job. Select with action.", "action", OPEN_DESTRUCTIVE),
     coreTool("manage", "Inspect or mutate a service or package through bounded backend operations. Select with target.", "target", OPEN_DESTRUCTIVE),
-    coreTool("operation", "Run an existing backend operation batch or manage a v2 business approval. Select with action.", "action", OPEN_DESTRUCTIVE),
+    coreTool("operation", "Run an existing backend operation batch, invoke a configured VPS interface, or manage a v2 business approval. Select with action.", "action", OPEN_DESTRUCTIVE),
     coreTool("discover", "Return the server-side capability registry without changing the top-level MCP tool schema."),
   ];
 }
