@@ -7,7 +7,7 @@ const { promisify } = require("node:util");
 const YAML = require("yaml");
 
 const execFileAsync = promisify(execFile);
-const DEFAULT_INTERFACE_DIR = "/etc/vps-action-gateway/interfaces.d";
+const DEFAULT_INTERFACE_DIR = "/opt/vps-action-gateway/interfaces.d";
 const NAME_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
