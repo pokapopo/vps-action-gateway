@@ -34,6 +34,7 @@ const DEFAULT_REGISTRY = Object.freeze({
     approval_status: "__approval_status",
     approval_confirm: "__approval_confirm",
   }),
+  facilities: Object.freeze({ default: null }),
   discover: Object.freeze({ default: null }),
 });
 
@@ -68,7 +69,7 @@ function createCapabilityRegistry(overrides = {}) {
 
 function discoverCapabilities(registry = DEFAULT_REGISTRY) {
   return Object.fromEntries(Object.entries(registry)
-    .filter(([tool]) => !["health", "discover"].includes(tool))
+    .filter(([tool]) => !["health", "facilities", "discover"].includes(tool))
     .map(([tool, values]) => [tool, Object.keys(values)]));
 }
 
@@ -109,7 +110,7 @@ function resolveRoute(tool, input = {}, options = {}) {
     error.status = 404;
     throw error;
   }
-  if (tool === "discover") return { action: null, args: {}, selector: undefined };
+  if (tool === "discover" || tool === "facilities") return { action: null, args: {}, selector: undefined };
   if (tool === "health") return { action: registry.health.default, args: backendArguments(input) };
   const selectorField = SELECTOR_FIELDS[tool];
   const selector = input[selectorField];
@@ -146,6 +147,20 @@ async function routeCoreTool(tool, input = {}, options = {}) {
         status: "succeeded",
         summary: "discover succeeded",
         data: { capabilities: discoverCapabilities(registry) },
+        truncated: false,
+        redactions: 0,
+        warnings: [],
+      },
+    };
+  }
+  if (tool === "facilities") {
+    return {
+      ...route,
+      result: {
+        ok: true,
+        status: "succeeded",
+        summary: "facilities listed",
+        data: {},
         truncated: false,
         redactions: 0,
         warnings: [],

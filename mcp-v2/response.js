@@ -122,6 +122,11 @@ function renderPayload(tool, selector, result) {
   if (tool === "read") return renderRead(selector, result.data);
   if (tool === "observe") return renderObserve(selector, result.data);
   if (tool === "discover") return ["Current server-side capabilities", json({ capabilities: result.data?.capabilities || {}, interfaces: result.data?.interfaces || [] })].join("\n");
+  if (tool === "facilities") return [
+    "Configured VPS facilities",
+    "For an unknown local facility, use this catalog first. Use exact returned names and schemas, then call operation(action=invoke). Do not guess or bypass a matching facility with execute.",
+    json({ facilities: result.data?.interfaces || [], invoke_with: result.data?.invoke_with || {}, rules: result.data?.rules || [] }),
+  ].join("\n");
   return [`${tool} ${result.status}`, json(result.data || {})].join("\n");
 }
 

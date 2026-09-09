@@ -41,8 +41,21 @@ async function handleRpc(message, options = {}) {
       const routed = name === "operation" && String(args.action || "").startsWith("approval_")
         ? await handleApprovalOperation(args, { ...options, approvalStore })
         : await routeWithHostApproval(name, args, { ...options, approvalStore });
-      if (name === "discover" && routed.result?.data) {
+      if ((name === "discover" || name === "facilities") && routed.result?.data) {
         routed.result.data.interfaces = publicInterfaceCatalog(await loadInterfaceRegistry());
+      }
+      if (name === "facilities" && routed.result?.data) {
+        routed.result.data.invoke_with = {
+          tool: "operation",
+          action: "invoke",
+          arguments: { interface: "<facility name>", method: "<action name>", input: "<matching input_schema>" },
+        };
+        routed.result.data.rules = [
+          "Call facilities before invoking an unknown local facility; use its returned names and schemas exactly.",
+          "A known facility may be invoked directly with operation(action=invoke); do not rediscover it unnecessarily.",
+          "Do not guess facility names or actions, and do not use execute when a matching facility exists.",
+          "If no facility matches, say that it is not configured rather than inventing one.",
+        ];
       }
       const v2Data = { core_tools: getCoreCatalog().map((tool) => tool.name), capabilities: discoverCapabilities(options.registry || DEFAULT_REGISTRY) };
       const result = buildCoreResult(name, routed.selector, routed.result, { debug: args.debug === true, v2Data });

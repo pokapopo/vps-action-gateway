@@ -48,7 +48,7 @@ test("interface registry validates manifests, exposes public capabilities, and i
   await assert.rejects(() => invokeRegisteredInterface(registry, "echo", "send", {}), { code: "invalid_interface_config" });
 });
 
-test("MCP discover includes configured interfaces without adding top-level tools", async (t) => {
+test("MCP facilities reliably exposes configured interfaces without execution details", async (t) => {
   const directory = await tempDirectory(t);
   await fsp.writeFile(path.join(directory, "milo.yaml"), "name: milo\ndescription: Milo\nactions:\n  chat:\n    transport: http\n    method: POST\n    url: http://127.0.0.1:1/chat\n");
   const previous = process.env.VPS_ACTION_INTERFACE_DIR;
@@ -57,7 +57,12 @@ test("MCP discover includes configured interfaces without adding top-level tools
     if (previous === undefined) delete process.env.VPS_ACTION_INTERFACE_DIR;
     else process.env.VPS_ACTION_INTERFACE_DIR = previous;
   });
-  const response = await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "discover", arguments: {} } }, { log: false });
+  const response = await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "facilities", arguments: {} } }, { log: false });
   assert.equal(response.result.structuredContent.data.interfaces[0].name, "milo");
-  assert.equal((await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { log: false })).result.tools.length, 9);
+  assert.equal(response.result.structuredContent.data.interfaces[0].actions.chat.url, undefined);
+  assert.equal(response.result.structuredContent.data.interfaces[0].actions.chat.bearer_env, undefined);
+  assert.equal(response.result.structuredContent.data.interfaces[0].actions.chat.command, undefined);
+  assert.equal(response.result.structuredContent.data.invoke_with.action, "invoke");
+  assert.match(response.result.content[0].text, /Do not guess/);
+  assert.equal((await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { log: false })).result.tools.length, 10);
 });

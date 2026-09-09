@@ -52,6 +52,7 @@ function getCoreCatalog() {
     coreTool("execute", "Run a command or start, inspect, or cancel a job. Select with action.", "action", OPEN_DESTRUCTIVE),
     coreTool("manage", "Inspect or mutate a service or package through bounded backend operations. Select with target.", "target", OPEN_DESTRUCTIVE),
     coreTool("operation", "Run an existing backend operation batch, invoke a configured VPS interface, or manage a v2 business approval. Select with action.", "action", OPEN_DESTRUCTIVE),
+    coreTool("facilities", "List configured VPS facilities and their supported actions. Before operating an unknown local service, project, bot, or other custom facility, call this tool. Use only the returned facility names, action names, and input schemas; then call operation(action=invoke). Do not guess names or bypass a matching facility with execute."),
     coreTool("discover", "Return the server-side capability registry without changing the top-level MCP tool schema."),
   ];
 }

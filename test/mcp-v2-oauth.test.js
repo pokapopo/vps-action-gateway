@@ -63,7 +63,7 @@ test("v2 has audience-isolated OAuth metadata, PKCE, access, and refresh", async
   assert.ok(token.refresh_token);
 
   const listed = await fetch(`${base}/mcp-v2/`, { method: "POST", headers: { authorization: `Bearer ${token.access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) }).then((response) => response.json());
-  assert.equal(listed.result.tools.length, 9);
+  assert.equal(listed.result.tools.length, 10);
 
   const refreshed = await fetch(`${base}/oauth-v2/token`, {
     method: "POST",

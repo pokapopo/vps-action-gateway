@@ -25,7 +25,7 @@ test("stateless initialize and tools/list never require or issue an MCP session"
   assert.equal(initialized.body.result.capabilities.resources, undefined);
   assert.equal(initialized.response.headers.get("mcp-session-id"), null);
   const listed = await rpc(2, "tools/list", {}, { "mcp-session-id": "ignored-stale-session" });
-  assert.equal(listed.body.result.tools.length, 9);
+  assert.equal(listed.body.result.tools.length, 10);
   assert.equal(listed.response.headers.get("mcp-session-id"), null);
 });
 

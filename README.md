@@ -74,7 +74,7 @@ policy, SHA guards, idempotency, jobs, trash, or credential redaction.
 
 ### Custom VPS interfaces
 
-The gateway keeps a stable nine-tool MCP surface while allowing local services
+The gateway keeps a stable ten-tool MCP surface while allowing local services
 to be added through interface manifests. Copy a manifest into
 `/etc/vps-action-gateway/interfaces.d/`; the first version supports `http` and
 `command` transports. Credentials are referenced by environment variable and
@@ -114,8 +114,15 @@ configured transport:
 }
 ```
 
-`discover` reports configured interfaces and their actions. It is not required
-before every invocation, so a client can call a known facility in one turn.
+`facilities` is the model-facing discovery entrypoint: call it before operating
+an unknown local service, project, bot, or other custom facility. It returns
+configured names, actions, input schemas, and the exact `operation(action=invoke)`
+calling convention. Models must not guess facility/action names or bypass a
+matching facility with `execute`. It is not required before every invocation,
+so a client can call a known facility in one turn.
+
+`discover` also includes the interface catalog for compatibility with existing
+clients.
 
 V2 Streamable HTTP is stateless: each POST handles `initialize`, `tools/list`,
 or `tools/call` independently. It does not issue `Mcp-Session-Id`, keep SSE
