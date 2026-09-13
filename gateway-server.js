@@ -15,7 +15,6 @@ const routes = new Map([
   ["GET /gpt/v1/health", ["healthCheck", false]],
   ["POST /gpt/v1/workspace/inspect", ["inspectWorkspace", true]],
   ["POST /gpt/v1/system/overview", ["getSystemOverview", true]],
-  ["POST /gpt/v1/cyberboss/monitor", ["getCyberbossMonitorSnapshot", true]],
   ["POST /gpt/v1/logs/query", ["queryLogs", true]],
   ["POST /gpt/v1/files/search", ["searchFiles", true]],
   ["POST /gpt/v1/files/read", ["readFile", true]],

@@ -447,7 +447,7 @@ async function getSystemOverview() {
   for (const root of [...new Set([...WORKSPACE_ROOTS, ...READ_ROOTS])]) {
     try { disks.push({ path: root, free_bytes: await freeBytes(root) }); } catch {}
   }
-  const services = ["nginx", "cyberboss", "vps-action-backend", "vps-action-gpt", "vps-action-mcp"];
+  const services = ["nginx", "vps-action-backend", "vps-action-gpt", "vps-action-mcp"];
   const status = await Promise.all(services.map(async (name) => {
     try { const { stdout } = await execFileAsync("/usr/bin/systemctl", ["is-active", name], { timeout: 5000 }); return { name, state: stdout.trim() }; }
     catch (error) { return { name, state: String(error.stdout || "unknown").trim() || "unknown" }; }
@@ -494,242 +494,6 @@ async function getProcessList(args) {
     truncated: filtered.length > processes.length,
     processes,
   });
-}
-
-const CYBERBOSS_STATE_FILES = Object.freeze({
-  usage: "/root/.cyberboss/model-gateway-usage.json",
-  work_log: "/root/.cyberboss/work-log.json",
-  delivery_outbox: "/root/.cyberboss/weixin-delivery-outbox.json",
-  background_continuity: "/root/.cyberboss/background-continuity.json",
-});
-
-async function readCyberbossState(name) {
-  const filePath = CYBERBOSS_STATE_FILES[name];
-  try {
-    const stat = await fsp.stat(filePath);
-    if (!stat.isFile() || stat.size > 16 * 1024 * 1024) throw new ActionError("state_file_invalid", `${name} state is not a bounded regular file`, 422);
-    return { value: JSON.parse(await fsp.readFile(filePath, "utf8")), modified_at: stat.mtime.toISOString(), size_bytes: stat.size };
-  } catch (error) {
-    if (error.code === "ENOENT") return { value: null, missing: true };
-    if (error instanceof SyntaxError) return { value: null, invalid: true, error: "invalid JSON" };
-    throw error;
-  }
-}
-
-function countBy(items, field) {
-  const counts = {};
-  for (const item of items) {
-    const key = String(item?.[field] || "unknown");
-    counts[key] = (counts[key] || 0) + 1;
-  }
-  return counts;
-}
-
-function timestampOf(item, fields) {
-  for (const field of fields) {
-    const value = Date.parse(item?.[field] || "");
-    if (Number.isFinite(value)) return value;
-  }
-  return 0;
-}
-
-function summarizeUsage(state, sinceMs, options = {}) {
-  const all = Array.isArray(state?.records) ? state.records : [];
-  const recent = all.filter((item) => timestampOf(item, ["recordedAt", "createdAt", "timestamp"]) >= sinceMs);
-  const seen = new Set();
-  const records = recent.filter((item, index) => {
-    const key = item?.usageEventId || item?.requestId || `${item?.runId || "run"}:${item?.recordedAt || index}:${item?.kind || "unknown"}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  const tokenFields = ["inputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "outputTokens", "totalTokens"];
-  const totals = { requestCount: records.length };
-  for (const field of tokenFields) totals[field] = records.reduce((sum, item) => sum + (Number(item?.usage?.[field]) || 0), 0);
-  const byKind = {};
-  for (const item of records) {
-    const key = String(item.kind || item.source || "unknown");
-    const bucket = byKind[key] || { requestCount: 0, totalTokens: 0 };
-    bucket.requestCount += 1;
-    bucket.totalTokens += Number(item?.usage?.totalTokens) || 0;
-    byKind[key] = bucket;
-  }
-  const runs = new Map();
-  for (const item of records) {
-    const key = String(item.runId || item.taskId || "unbound");
-    const bucket = runs.get(key) || { runId: key, requestCount: 0, totalTokens: 0 };
-    bucket.requestCount += 1;
-    bucket.totalTokens += Number(item?.usage?.totalTokens) || 0;
-    runs.set(key, bucket);
-  }
-  const recentRequestsLimit = Math.min(Math.max(Math.trunc(Number(options.limit)) || 20, 1), 50);
-  const recentRequestsOffset = Math.max(Math.trunc(Number(options.offset)) || 0, 0);
-  const requestRecords = records
-    .map((item, index) => ({ item, index, timestamp: timestampOf(item, ["recordedAt", "createdAt", "timestamp"]) }))
-    .sort((a, b) => b.timestamp - a.timestamp || b.index - a.index);
-  const recentRequests = requestRecords
-    .slice(recentRequestsOffset, recentRequestsOffset + recentRequestsLimit)
-    .map(({ item }) => {
-      const inputTokens = Number(item?.usage?.inputTokens) || 0;
-      const cacheReadInputTokens = Number(item?.usage?.cacheReadInputTokens) || 0;
-      const cacheCreationInputTokens = Number(item?.usage?.cacheCreationInputTokens) || 0;
-      const outputTokens = Number(item?.usage?.outputTokens) || 0;
-      const totalTokens = Number(item?.usage?.totalTokens) || 0;
-      const cacheEligibleInputTokens = inputTokens + cacheReadInputTokens + cacheCreationInputTokens;
-      return {
-        recordedAt: item.recordedAt || item.createdAt || item.timestamp || null,
-        requestId: item.requestId || null,
-        taskId: item.taskId || null,
-        runId: item.runId || null,
-        source: item.source || null,
-        kind: item.kind || null,
-        model: item.model || null,
-        provider: item.provider || null,
-        status: item.status || null,
-        retryCount: Number(item.retryCount) || 0,
-        reason: item.reason || "",
-        inputTokens,
-        cacheReadInputTokens,
-        cacheCreationInputTokens,
-        outputTokens,
-        totalTokens,
-        fixedPrefixFingerprint: item.fixedPrefixFingerprint || "",
-        toolCatalogFingerprint: item.toolCatalogFingerprint || "",
-        cacheEligibleInputTokens,
-        cacheReadRatio: cacheEligibleInputTokens > 0 ? cacheReadInputTokens / cacheEligibleInputTokens : 0,
-        cacheHit: cacheReadInputTokens > 0,
-      };
-    });
-  return {
-    ledger_records: all.length,
-    window_records_before_dedupe: recent.length,
-    window_records: records.length,
-    deduplicated_records: recent.length - records.length,
-    totals,
-    by_kind: byKind,
-    top_runs: [...runs.values()].sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 10),
-    recent_requests: recentRequests,
-    recent_requests_page: {
-      offset: recentRequestsOffset,
-      limit: recentRequestsLimit,
-      returned: recentRequests.length,
-      total: requestRecords.length,
-      has_more: recentRequestsOffset + recentRequests.length < requestRecords.length,
-      next_offset: recentRequestsOffset + recentRequests.length < requestRecords.length
-        ? recentRequestsOffset + recentRequests.length
-        : null,
-    },
-    alerts: Array.isArray(state?.alerts) ? state.alerts.slice(-10) : [],
-  };
-}
-
-function summarizeWorkLog(state, sinceMs) {
-  const all = Array.isArray(state?.records) ? state.records : [];
-  const records = all.filter((item) => timestampOf(item, ["startedAt", "updatedAt", "finishedAt"]) >= sinceMs);
-  const now = Date.now();
-  const compactRecord = (item) => ({
-    id: item.id || null,
-    source: item.source || null,
-    triggerKind: item.triggerKind || null,
-    executionStatus: item.executionStatus || null,
-    deliveryStatus: item.deliveryStatus || null,
-    startedAt: item.startedAt || null,
-    updatedAt: item.updatedAt || null,
-    finishedAt: item.finishedAt || null,
-    age_seconds: Math.max(0, Math.floor((now - timestampOf(item, ["startedAt", "updatedAt"])) / 1000)),
-    lastError: item.lastError ? redact(String(item.lastError)).value.slice(0, 500) : null,
-    usage: item.usage || null,
-    tool_events: (Array.isArray(item.events) ? item.events : [])
-      .filter((event) => event?.type === "tool.used" || /delivery\.|execution\.(?:failed|interrupted)/.test(event?.type || ""))
-      .slice(-20),
-  });
-  const active = records.filter((item) => !item.finishedAt && ["running", "queued", "started"].includes(item.executionStatus));
-  const failures = records.filter((item) => ["failed", "interrupted", "cancelled"].includes(item.executionStatus)).slice(-20);
-  const ncp = records.filter((item) => (item.events || []).some((event) => /cyberboss_ncp_read_batch|social|garden/i.test(`${event?.type || ""} ${event?.detail || ""}`))).slice(-20);
-  return {
-    retained_records: all.length,
-    window_records: records.length,
-    by_status: countBy(records, "executionStatus"),
-    by_trigger: countBy(records, "triggerKind"),
-    active: active.map(compactRecord),
-    recent_failures: failures.map(compactRecord),
-    recent_ncp_or_social_runs: ncp.map(compactRecord),
-    recent_runs: records.slice(-20).map(compactRecord),
-  };
-}
-
-function summarizeOutbox(state) {
-  const deliveries = Array.isArray(state?.deliveries) ? state.deliveries : [];
-  const runs = Array.isArray(state?.runs) ? state.runs : [];
-  return {
-    pending_deliveries: deliveries.length,
-    retained_runs: runs.length,
-    delivery_kinds: countBy(deliveries, "kind"),
-    delivery_statuses: countBy(deliveries, "status"),
-    oldest_pending_at: deliveries.map((item) => item.createdAt || item.queuedAt).filter(Boolean).sort()[0] || null,
-  };
-}
-
-function summarizeContinuity(state, sinceMs) {
-  const all = Array.isArray(state?.items) ? state.items : [];
-  const recent = all.filter((item) => !item.consumedAt || timestampOf(item, ["createdAt", "consumedAt"]) >= sinceMs);
-  return {
-    retained_items: all.length,
-    unconsumed_items: all.filter((item) => !item.consumedAt).length,
-    by_kind: countBy(recent, "kind"),
-    by_trigger: countBy(recent, "triggerKind"),
-    recent_items: recent.slice(-20).map((item) => ({
-      id: item.id || null, kind: item.kind || null, triggerKind: item.triggerKind || null,
-      threadId: item.threadId || null, createdAt: item.createdAt || null,
-      consumedAt: item.consumedAt || null, expiresAt: item.expiresAt || null,
-    })),
-  };
-}
-
-async function getCyberbossMonitorSnapshot(args) {
-  const hours = Math.min(Math.max(Number(args.hours) || 3, 1), 12);
-  const journalLines = Math.min(Math.max(Number(args.journal_lines) || 200, 20), 500);
-  const recentRequestsLimit = Math.min(Math.max(Math.trunc(Number(args.recent_requests_limit)) || 20, 1), 50);
-  const recentRequestsOffset = Math.max(Math.trunc(Number(args.recent_requests_offset)) || 0, 0);
-  const sinceMs = Date.now() - hours * 60 * 60 * 1000;
-  const [serviceResult, journalResult, processResult, pressureText, disk, usage, workLog, outbox, continuity] = await Promise.all([
-    execFileAsync("/usr/bin/systemctl", ["show", "cyberboss.service", "--no-pager", "--property=ActiveState,SubState,MainPID,MemoryCurrent,TasksCurrent,NRestarts,ExecMainStartTimestamp"], { timeout: 5000 }).catch((error) => ({ stdout: error.stdout || "", stderr: error.stderr || error.message })),
-    execFileAsync("/usr/bin/journalctl", ["--no-pager", "-u", "cyberboss.service", "--since", `${hours} hours ago`, "-n", String(journalLines), "-o", "short-iso"], { timeout: 30000, maxBuffer: 1024 * 1024 }).catch((error) => ({ stdout: error.stdout || "", stderr: error.stderr || error.message })),
-    execFileAsync("/usr/bin/ps", ["-eo", "pid=,ppid=,rss=,etimes=,comm="], { timeout: 5000, maxBuffer: 1024 * 1024 }).catch(() => ({ stdout: "" })),
-    fsp.readFile("/proc/pressure/memory", "utf8").catch(() => "unavailable"),
-    fsp.statfs("/"),
-    readCyberbossState("usage"), readCyberbossState("work_log"),
-    readCyberbossState("delivery_outbox"), readCyberbossState("background_continuity"),
-  ]);
-  const service = Object.fromEntries(String(serviceResult.stdout || "").trim().split(/\r?\n/).filter(Boolean).map((line) => {
-    const index = line.indexOf("="); return index < 0 ? [line, ""] : [line.slice(0, index), line.slice(index + 1)];
-  }));
-  const processRows = String(processResult.stdout || "").trim().split(/\r?\n/).map((line) => {
-    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/);
-    return match ? { pid: Number(match[1]), ppid: Number(match[2]), rss_bytes: Number(match[3]) * 1024, elapsed_seconds: Number(match[4]), command: match[5] } : null;
-  }).filter(Boolean).sort((a, b) => b.rss_bytes - a.rss_bytes).slice(0, 20);
-  const journal = boundedText(`${journalResult.stdout || ""}${journalResult.stderr ? `\n${journalResult.stderr}` : ""}`);
-  const warnings = [];
-  if (service.ActiveState !== "active") warnings.push(`cyberboss.service is ${service.ActiveState || "unknown"}/${service.SubState || "unknown"}`);
-  if (os.freemem() < 512 * 1024 * 1024) warnings.push("host free memory is below 512 MiB");
-  if (Number(disk.bavail) * Number(disk.bsize) < 5 * 1024 * 1024 * 1024) warnings.push("root filesystem free space is below 5 GiB");
-  const data = {
-    generated_at: new Date().toISOString(), window_hours: hours,
-    authority: "root-backed fixed read-only Cyberboss monitor; no arbitrary root command execution",
-    service,
-    resources: {
-      load_average: os.loadavg(), memory: { total_bytes: os.totalmem(), free_bytes: os.freemem() },
-      root_disk: { free_bytes: Number(disk.bavail) * Number(disk.bsize), total_bytes: Number(disk.blocks) * Number(disk.bsize) },
-      memory_pressure: pressureText.trim(), top_processes: processRows,
-    },
-    model_usage: summarizeUsage(usage.value, sinceMs, { limit: recentRequestsLimit, offset: recentRequestsOffset }),
-    work_runs: summarizeWorkLog(workLog.value, sinceMs),
-    delivery_outbox: summarizeOutbox(outbox.value),
-    background_continuity: summarizeContinuity(continuity.value, sinceMs),
-    state_files: Object.fromEntries(Object.entries({ usage, work_log: workLog, delivery_outbox: outbox, background_continuity: continuity }).map(([name, state]) => [name, { path: CYBERBOSS_STATE_FILES[name], modified_at: state.modified_at || null, size_bytes: state.size_bytes || 0, missing: state.missing === true, invalid: state.invalid === true }])),
-    journal: journal.text,
-  };
-  return envelope("getCyberbossMonitorSnapshot", data, { truncated: journal.truncated, redactions: journal.redactions, warnings });
 }
 
 async function queryLogs(args) {
@@ -928,6 +692,7 @@ async function manageService(args) {
   if (!/^[A-Za-z0-9@_.-]+(?:\.service)?$/.test(name)) throw new ActionError("invalid_service", "service name is invalid");
   if (!new Set(["status", "start", "stop", "restart", "reload", "enable", "disable"]).has(action)) throw new ActionError("invalid_service_action", "unsupported service action");
   if (["vps-action-backend", "vps-action-gpt", "vps-action-mcp"].includes(name.replace(/\.service$/, "")) && action !== "status") throw new ActionError("service_protected", "gateway services may only be inspected through this API", 403);
+  if (name.replace(/\.service$/, "") === "nginx" && action === "stop") throw new ActionError("service_protected", "nginx stop is blocked because it would cut off the gateway control plane; use reload/restart or out-of-band maintenance", 403);
   const command = action === "status" ? ["status", name, "--no-pager"] : [action, name];
   try {
     const { stdout, stderr } = await execFileAsync("/usr/bin/systemctl", command, { timeout: 60000, maxBuffer: 1024 * 1024 });
@@ -979,7 +744,7 @@ async function invokeInterface(args) {
 }
 
 const BATCH_ACTIONS = new Set([
-  "healthCheck", "inspectWorkspace", "getSystemOverview", "getProcessList", "getCyberbossMonitorSnapshot", "queryLogs", "searchFiles", "readFile",
+  "healthCheck", "inspectWorkspace", "getSystemOverview", "getProcessList", "queryLogs", "searchFiles", "readFile",
   "applyPatch", "writeFile", "deletePath", "restorePath", "runCommand", "startJob", "getJob", "cancelJob",
   "manageService", "managePackage", "invokeInterface",
 ]);
@@ -1004,7 +769,7 @@ async function operationBatch(args) {
 }
 
 const actions = {
-  healthCheck, inspectWorkspace, getSystemOverview, getProcessList, getCyberbossMonitorSnapshot, queryLogs, searchFiles,
+  healthCheck, inspectWorkspace, getSystemOverview, getProcessList, queryLogs, searchFiles,
   readFile: readFileAction, applyPatch, writeFile: writeFileAction,
   deletePath, restorePath, runCommand: (args) => startJob(args, "runCommand"), startJob, getJob, cancelJob,
   manageService, managePackage, invokeInterface, operationBatch,

@@ -1,0 +1,12 @@
+# Rules are evaluated in deny -> confirm -> allow -> default order.
+commands:
+  default: confirm
+  deny:
+    - '^.*(?:shutdown|poweroff|reboot)(?:\s|;|$)'
+    - '^.*systemctl\s+stop\s+(?:nginx|caddy)(?:\.service)?(?:\s|;|$)'
+  allow:
+    - '^pwd$'
+    - '^whoami$'
+    - '^git\s+(?:status|diff|log)(?:\s|$)'
+    - '^systemctl\s+status\s+[A-Za-z0-9@_.-]+(?:\.service)?(?:\s|$)'
+    - '^journalctl\s+(?:-u|--unit)\s+[A-Za-z0-9@_.-]+(?:\.service)?(?:\s|$)'

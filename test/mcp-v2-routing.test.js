@@ -9,7 +9,6 @@ test("read and observe selectors route only to existing backend actions", () => 
   assert.equal(resolveRoute("read", { view: "search", query: "x" }).action, "searchFiles");
   assert.equal(resolveRoute("read", { view: "tree" }).action, "inspectWorkspace");
   assert.equal(resolveRoute("observe", { view: "system" }).action, "getSystemOverview");
-  assert.equal(resolveRoute("observe", { view: "cyberboss" }).action, "getCyberbossMonitorSnapshot");
   assert.equal(resolveRoute("observe", { view: "logs" }).action, "queryLogs");
   assert.throws(() => resolveRoute("observe", { view: "network" }), (error) => error.code === "unsupported_capability");
 });

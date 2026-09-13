@@ -2,7 +2,7 @@
 
 const crypto = require("node:crypto");
 
-const PUBLIC_ORIGIN = String(process.env.VPS_MCP_OAUTH_ISSUER || "https://action.uuhalo.xyz").replace(/\/$/, "");
+const PUBLIC_ORIGIN = String(process.env.VPS_MCP_OAUTH_ISSUER || "http://127.0.0.1:8789").replace(/\/$/, "");
 const ISSUER = String(process.env.VPS_MCP_V2_OAUTH_ISSUER || `${PUBLIC_ORIGIN}/oauth-v2`).replace(/\/$/, "");
 const RESOURCE = process.env.VPS_MCP_V2_OAUTH_RESOURCE || `${PUBLIC_ORIGIN}/mcp-v2/`;
 const TOKEN_SECRET = process.env.VPS_MCP_OAUTH_TOKEN_SECRET || "";

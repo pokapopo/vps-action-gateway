@@ -1,0 +1,24 @@
+name: local_browser
+description: Controlled local browser facility for listing tabs and opening approved in-site paths
+actions:
+  list_tabs:
+    description: List current tab titles and sanitized URL summaries
+    transport: http
+    method: GET
+    url: http://127.0.0.1:9333/api/tabs
+    bearer_env: BROWSER_CONTROL_TOKEN
+    input_schema:
+      type: object
+  open_page:
+    description: Open a server-approved relative path in the controlled browser
+    transport: http
+    method: POST
+    url: http://127.0.0.1:9333/api/open
+    bearer_env: BROWSER_CONTROL_TOKEN
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Relative path allowed by the browser service, such as /notifications

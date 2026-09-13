@@ -1,7 +1,13 @@
 {
   "name": "vps-action-gateway",
   "version": "0.2.0",
+  "description": "A policy-controlled MCP execution gateway for VPS workloads and custom facilities",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pokapopo/vps-action-gateway.git"
+  },
   "type": "commonjs",
   "scripts": {
     "test": "node --test test/*.test.js"

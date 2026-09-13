@@ -46,7 +46,7 @@ function getCoreCatalog() {
   return [
     coreTool("health", "Check the gateway and report the current stable v2 capability surface."),
     coreTool("read", "Read a file, search files, or inspect a tree. Select with view; put capability-specific fields in arguments.", "view"),
-    coreTool("observe", "Observe the system, Cyberboss, logs, or running processes (view=processes, optional arguments.match). Read-only, no approval. Prefer this over execute/run for any inspection.", "view"),
+    coreTool("observe", "Observe the system, logs, or running processes (view=processes, optional arguments.match). Read-only, no approval. Prefer this over execute/run for any inspection.", "view"),
     coreTool("edit", "Create, replace, or patch files and scripts after the host's native tool approval when required; SHA guards prevent stale overwrites. Select with action.", "action", WRITE),
     coreTool("move_out", "Move a path to recoverable trash or restore it. Select with action.", "action", DESTRUCTIVE),
     coreTool("execute", "Run a command or start, inspect, or cancel a job. Select with action.", "action", OPEN_DESTRUCTIVE),

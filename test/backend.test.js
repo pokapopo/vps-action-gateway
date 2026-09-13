@@ -57,35 +57,6 @@ test("healthCheck reports the live shared tool catalog", async () => {
   assert.equal(health.data.tool_schema_revision, expected.tool_schema_revision);
 });
 
-test("Cyberboss monitor is root-backed, bounded, read-only, and exposes paginated request usage", async () => {
-  const snapshot = await dispatch("getCyberbossMonitorSnapshot", { hours: 12, journal_lines: 20, recent_requests_limit: 2 });
-  assert.equal(snapshot.ok, true);
-  assert.equal(snapshot.status, "succeeded");
-  assert.equal(snapshot.data.window_hours, 12);
-  assert.match(snapshot.data.authority, /root-backed fixed read-only/);
-  assert.equal(typeof snapshot.data.service, "object");
-  assert.equal(typeof snapshot.data.resources.memory.total_bytes, "number");
-  assert.equal(typeof snapshot.data.model_usage.totals.totalTokens, "number");
-  assert.ok(snapshot.data.model_usage.recent_requests.length <= 2);
-  assert.equal(snapshot.data.model_usage.recent_requests_page.limit, 2);
-  assert.equal(snapshot.data.model_usage.recent_requests_page.offset, 0);
-  for (const request of snapshot.data.model_usage.recent_requests) {
-    assert.deepEqual(Object.keys(request), [
-      "recordedAt", "requestId", "taskId", "runId", "source", "kind", "model", "provider", "status",
-      "retryCount", "reason", "inputTokens", "cacheReadInputTokens", "cacheCreationInputTokens",
-      "outputTokens", "totalTokens", "fixedPrefixFingerprint", "toolCatalogFingerprint",
-      "cacheEligibleInputTokens", "cacheReadRatio", "cacheHit",
-    ]);
-    assert.equal(request.cacheEligibleInputTokens, request.inputTokens + request.cacheReadInputTokens + request.cacheCreationInputTokens);
-    assert.equal(request.cacheReadRatio, request.cacheEligibleInputTokens > 0 ? request.cacheReadInputTokens / request.cacheEligibleInputTokens : 0);
-    assert.equal(request.cacheHit, request.cacheReadInputTokens > 0);
-  }
-  assert.equal(typeof snapshot.data.work_runs.by_status, "object");
-  assert.equal(typeof snapshot.data.delivery_outbox.pending_deliveries, "number");
-  assert.equal(typeof snapshot.data.background_continuity.unconsumed_items, "number");
-  assert.equal(snapshot.data.command, undefined);
-});
-
 test("identity material is readable without approval and its writes escalate to approval, not a hard deny", async () => {
   const read = await dispatch("readFile", { path: "/etc/shadow" });
   assert.equal(read.status, "succeeded");
@@ -214,24 +185,24 @@ test("command policy has only allow and confirm outcomes", () => {
   assert.equal(evaluateCommand("git status && reboot", commandPolicy).decision, "confirm");
   assert.equal(evaluateCommand("printf hello", commandPolicy).decision, "confirm");
   assert.equal(evaluateCommand("git status | cat", commandPolicy).decision, "confirm");
-  assert.equal(evaluateCommand("git status | systemctl is-active cyberboss", commandPolicy).decision, "allow");
+  assert.equal(evaluateCommand("git status | systemctl is-active example-app", commandPolicy).decision, "allow");
   assert.equal(evaluateCommand("node --check /opt/vps-action-gateway/command-policy.js", commandPolicy).decision, "allow");
   assert.equal(evaluateCommand("uptime", commandPolicy).decision, "allow");
   assert.equal(evaluateCommand("grep -n approval /opt/vps-action-gateway/privileged-server.js", commandPolicy).decision, "allow");
-  assert.equal(evaluateCommand("sed -n 1,20p /root/cyberboss/AGENTS.md", commandPolicy).decision, "allow");
-  assert.equal(evaluateCommand("sha256sum /root/cyberboss/AGENTS.md", commandPolicy).decision, "allow");
-  assert.equal(evaluateCommand("sed -i 1d /root/cyberboss/AGENTS.md", commandPolicy).decision, "confirm");
-  assert.equal(evaluateCommand("sed -n w/tmp/copied /root/cyberboss/AGENTS.md", commandPolicy).decision, "confirm");
-  assert.equal(evaluateCommand("grep -R token /root/.cyberboss", commandPolicy).decision, "allow");
+  assert.equal(evaluateCommand("sed -n 1,20p /srv/ai-workspace/README.md", commandPolicy).decision, "allow");
+  assert.equal(evaluateCommand("sha256sum /srv/ai-workspace/README.md", commandPolicy).decision, "allow");
+  assert.equal(evaluateCommand("sed -i 1d /srv/ai-workspace/README.md", commandPolicy).decision, "confirm");
+  assert.equal(evaluateCommand("sed -n w/tmp/copied /srv/ai-workspace/README.md", commandPolicy).decision, "confirm");
+  assert.equal(evaluateCommand("grep -R token /srv/ai-workspace", commandPolicy).decision, "allow");
   assert.equal(evaluateCommand("sha256sum /etc/shadow", commandPolicy).decision, "allow");
   assert.equal(evaluateCommand("sed -n 1,20p /etc/shadow", commandPolicy).decision, "allow");
-  assert.equal(evaluateCommand("sqlite3 -readonly /root/cyberboss/state.db 'SELECT name FROM sqlite_master LIMIT 1'", commandPolicy).decision, "allow");
-  assert.equal(evaluateCommand("sqlite3 -readonly /root/cyberboss/state.db 'PRAGMA table_info(events)'", commandPolicy).decision, "allow");
-  assert.equal(evaluateCommand("sqlite3 /root/cyberboss/state.db 'DELETE FROM events'", commandPolicy).decision, "confirm");
-  assert.equal(evaluateCommand("grep -R TODO /root/cyberboss/src | head -n 20", commandPolicy).decision, "allow");
-  assert.equal(evaluateCommand("grep -R TODO /root/cyberboss/src | tee /tmp/todos", commandPolicy).decision, "confirm");
-  assert.equal(evaluateCommand("systemctl status cyberboss && ss -lntp", commandPolicy).decision, "allow");
-  assert.equal(evaluateCommand("systemctl restart cyberboss && ss -lntp", commandPolicy).decision, "confirm");
+  assert.equal(evaluateCommand("sqlite3 -readonly /srv/ai-workspace/state.db 'SELECT name FROM sqlite_master LIMIT 1'", commandPolicy).decision, "allow");
+  assert.equal(evaluateCommand("sqlite3 -readonly /srv/ai-workspace/state.db 'PRAGMA table_info(events)'", commandPolicy).decision, "allow");
+  assert.equal(evaluateCommand("sqlite3 /srv/ai-workspace/state.db 'DELETE FROM events'", commandPolicy).decision, "confirm");
+  assert.equal(evaluateCommand("grep -R TODO /srv/ai-workspace/src | head -n 20", commandPolicy).decision, "allow");
+  assert.equal(evaluateCommand("grep -R TODO /srv/ai-workspace/src | tee /tmp/todos", commandPolicy).decision, "confirm");
+  assert.equal(evaluateCommand("systemctl status example-app && ss -lntp", commandPolicy).decision, "allow");
+  assert.equal(evaluateCommand("systemctl restart example-app && ss -lntp", commandPolicy).decision, "confirm");
   assert.equal(evaluateCommand("git status > /tmp/status", commandPolicy).decision, "confirm");
   assert.equal(evaluateCommand("git status & reboot", commandPolicy).decision, "confirm");
   assert.equal(evaluateCommand("git status $(reboot)", commandPolicy).decision, "confirm");
@@ -246,7 +217,7 @@ test("read-only inspection commands are allow-listed so they never gate", () => 
     "pgrep -a chromium",
     "df -h",
     "lsblk",
-    "systemctl status cyberboss",
+    "systemctl status example-app",
   ]) {
     assert.equal(evaluateCommand(cmd, commandPolicy).decision, "allow", cmd);
   }

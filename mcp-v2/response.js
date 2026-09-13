@@ -49,45 +49,12 @@ function renderRead(selector, data) {
   return [`Tree inspection succeeded: ${data?.path || ""}`, `Entry count: ${data?.entry_count ?? 0}`, "--- entries ---", json(data?.entries || [])].join("\n");
 }
 
-function compactCyberbossSnapshot(data) {
-  return {
-    generated_at: data?.generated_at,
-    window_hours: data?.window_hours,
-    authority: data?.authority,
-    service: data?.service,
-    resources: data?.resources && {
-      load_average: data.resources.load_average,
-      memory: data.resources.memory,
-      root_disk: data.resources.root_disk,
-      memory_pressure: data.resources.memory_pressure,
-    },
-    model_usage: data?.model_usage && {
-      window_records: data.model_usage.window_records,
-      totals: data.model_usage.totals,
-      by_kind: data.model_usage.by_kind,
-      top_runs: data.model_usage.top_runs,
-      recent_requests: data.model_usage.recent_requests,
-      recent_requests_page: data.model_usage.recent_requests_page,
-    },
-    work_runs: data?.work_runs && {
-      window_records: data.work_runs.window_records,
-      by_status: data.work_runs.by_status,
-      active: data.work_runs.active,
-      recent_failures: data.work_runs.recent_failures,
-    },
-    delivery_outbox: data?.delivery_outbox,
-    background_continuity: data?.background_continuity,
-    journal: clipUtf8(data?.journal, 1024).text,
-  };
-}
-
 function renderObserve(selector, data) {
   if (selector === "logs") {
     return [`Logs succeeded: ${data?.source || "unknown"}${data?.unit ? ` unit=${data.unit}` : ""}${data?.path ? ` path=${data.path}` : ""}`, "--- output ---", data?.output || ""].join("\n");
   }
   if (selector === "system") return ["System observation succeeded", json(data || {})].join("\n");
-  const snapshot = compactCyberbossSnapshot(data);
-  return ["Cyberboss observation succeeded", json(snapshot)].join("\n");
+  return ["Process observation succeeded", json(data || {})].join("\n");
 }
 
 function renderPayload(tool, selector, result) {
@@ -134,7 +101,6 @@ function buildCoreResult(tool, selector, rawResult, options = {}) {
   const v2Data = options.v2Data;
   const compacted = compact(rawResult, options.debug === true);
   if (tool === "health" && v2Data && compacted?.data) compacted.data = { ...compacted.data, v2: v2Data };
-  if (tool === "observe" && selector === "cyberboss" && compacted?.data) compacted.data = compactCyberbossSnapshot(compacted.data);
   const structuredContent = boundMcpResult(compacted, MAX_STRUCTURED_BYTES);
   const rendered = clipUtf8(renderPayload(tool, selector, structuredContent), MAX_TEXT_BYTES);
   if (rendered.clipped) {

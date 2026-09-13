@@ -1,0 +1,32 @@
+[Unit]
+Description=VPS Action Gateway MCP server
+After=network.target vps-action-backend.service
+Requires=vps-action-backend.service
+
+[Service]
+Type=simple
+User=vpsagent
+Group=vpsagent
+WorkingDirectory=/opt/vps-action-gateway
+EnvironmentFile=/etc/vps-action-gateway/gateway.env
+ExecStart=/usr/bin/node /opt/vps-action-gateway/mcp-v2/server.js
+Restart=on-failure
+RestartSec=2
+StateDirectory=vps-action-mcp-v2
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryMax=160M
+TasksMax=40
+
+[Install]
+WantedBy=multi-user.target

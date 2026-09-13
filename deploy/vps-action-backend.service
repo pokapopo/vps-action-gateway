@@ -1,0 +1,32 @@
+[Unit]
+Description=VPS Action Gateway execution backend
+After=local-fs.target
+
+[Service]
+Type=simple
+User=root
+Group=vpsagent
+WorkingDirectory=/opt/vps-action-gateway
+EnvironmentFile=/etc/vps-action-gateway/gateway.env
+ExecStart=/usr/bin/node /opt/vps-action-gateway/privileged-server.js
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=vps-action-gateway
+RuntimeDirectoryMode=0750
+StateDirectory=vps-action-gateway
+StateDirectoryMode=0750
+UMask=0007
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/run/vps-action-gateway /var/lib/vps-action-gateway /srv/ai-workspace
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryMax=256M
+TasksMax=80
+
+[Install]
+WantedBy=multi-user.target

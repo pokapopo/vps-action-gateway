@@ -4,9 +4,9 @@ info:
   description: "Private API for bounded VPS inspection, code maintenance, and system administration."
   version: 1.1.0
   contact: { name: "Private VPS Action Gateway" }
-  license: { name: "Proprietary / private use", url: "https://action.uuhalo.xyz/privacy" }
+  license: { name: "MIT", url: "https://github.com/pokapopo/vps-action-gateway/blob/main/LICENSE" }
 servers:
-  - url: https://action.uuhalo.xyz/gpt
+  - url: https://mcp.example.com/gpt
 paths:
   /v1/health:
     get:
@@ -28,13 +28,6 @@ paths:
       summary: "Get VPS OS, resource, disk, and selected service overview."
       requestBody: { required: false, content: { application/json: { schema: { $ref: "#/components/schemas/EmptyRequest" } } } }
       responses: { "200": { description: "System overview" }, "401": { description: "Invalid bearer key" } }
-  /v1/cyberboss/monitor:
-    post:
-      operationId: getCyberbossMonitorSnapshot
-      x-openai-isConsequential: false
-      summary: "Get a bounded root-backed, read-only Cyberboss service, usage, queue, continuity/NCP, and resource snapshot."
-      requestBody: { required: false, content: { application/json: { schema: { $ref: "#/components/schemas/CyberbossMonitorRequest" } } } }
-      responses: { "200": { description: "Cyberboss monitoring snapshot" }, "401": { description: "Invalid bearer key" } }
   /v1/logs/query:
     post:
       operationId: queryLogs
@@ -139,10 +132,6 @@ components:
       type: object
       additionalProperties: false
       properties: {}
-    CyberbossMonitorRequest:
-      type: object
-      additionalProperties: false
-      properties: { hours: { type: integer, minimum: 1, maximum: 12, default: 3 }, journal_lines: { type: integer, minimum: 20, maximum: 500, default: 200 }, recent_requests_limit: { type: integer, minimum: 1, maximum: 50, default: 20 }, recent_requests_offset: { type: integer, minimum: 0, default: 0 }, debug: { type: boolean } }
     InspectWorkspaceRequest:
       type: object
       additionalProperties: false
@@ -222,7 +211,7 @@ components:
             required: [id, tool]
             properties:
               id: { type: string, pattern: "^[A-Za-z0-9_.-]{1,64}$" }
-              tool: { type: string, enum: [healthCheck, inspectWorkspace, getSystemOverview, getCyberbossMonitorSnapshot, queryLogs, searchFiles, readFile, applyPatch, writeFile, deletePath, restorePath, runCommand, startJob, getJob, cancelJob, manageService, managePackage] }
+              tool: { type: string, enum: [healthCheck, inspectWorkspace, getSystemOverview, queryLogs, searchFiles, readFile, applyPatch, writeFile, deletePath, restorePath, runCommand, startJob, getJob, cancelJob, manageService, managePackage] }
               args: { type: object }
     FileReadEnvelope:
       type: object

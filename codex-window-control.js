@@ -1,13 +1,16 @@
 "use strict";
 
 const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
-const INDEX = "/root/.codex/session_index.jsonl";
-const STATE = "/var/lib/vps-action-gateway/codex-active-thread.json";
-const CODEX = "/root/.codex/packages/standalone/releases/0.153.4-x86_64-unknown-linux-musl/bin/codex";
-const REMOTE = "unix:///root/.codex/app-server-control/app-server-control.sock";
-const SEQUENCE_THREAD = "01a05634-dde3-7492-a530-0df69cd022a8";
+const CODEX_HOME = process.env.VPS_CODEX_HOME || path.join(os.homedir(), ".codex");
+const INDEX = process.env.VPS_CODEX_SESSION_INDEX || path.join(CODEX_HOME, "session_index.jsonl");
+const STATE = process.env.VPS_CODEX_ACTIVE_STATE || "/var/lib/vps-action-gateway/codex-active-thread.json";
+const CODEX = process.env.VPS_CODEX_BIN || "/usr/bin/codex";
+const REMOTE = process.env.VPS_CODEX_REMOTE || `unix://${path.join(CODEX_HOME, "app-server-control/app-server-control.sock")}`;
+const DEFAULT_THREAD = process.env.VPS_CODEX_DEFAULT_THREAD || "";
 
 function sessions() {
   const byId = new Map();
@@ -24,7 +27,7 @@ function sessions() {
 function active() {
   try { return JSON.parse(fs.readFileSync(STATE, "utf8")); }
   catch {
-    const item = sessions().find((x) => x.id === SEQUENCE_THREAD);
+    const item = DEFAULT_THREAD ? sessions().find((x) => x.id === DEFAULT_THREAD) : null;
     return item ? { id: item.id, name: item.thread_name } : null;
   }
 }

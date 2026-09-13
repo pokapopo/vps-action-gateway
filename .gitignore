@@ -11,3 +11,8 @@ coverage/
 # Historical diagnostics and retired v1 deployment remnants are not source.
 evidence/
 retired/
+
+# Runtime facility manifests are deployment-specific. Publish sanitized samples
+# under examples/interfaces/ instead.
+interfaces.d/*
+!interfaces.d/.gitkeep

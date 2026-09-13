@@ -27,19 +27,17 @@ test("discover and mutation IDs are present in TextContent", () => {
   assert.match(deleted, /trash_1/);
 });
 
-test("file, logs, search, and Cyberboss payloads survive discarded structuredContent", () => {
+test("file, logs, search, and process payloads survive discarded structuredContent", () => {
   const file = buildCoreResult("read", "file", succeeded({ path: "/tmp/a", sha256: "abc", size: 5, offset: 0, content: "hello" })).content[0].text;
   const logs = buildCoreResult("observe", "logs", succeeded({ source: "journal", unit: "x", output: "real log line" })).content[0].text;
   const search = buildCoreResult("read", "search", succeeded({ path: "/tmp", query: "needle", results: [{ path: "/tmp/a", match: "content" }] })).content[0].text;
-  const cyberboss = buildCoreResult("observe", "cyberboss", succeeded({ generated_at: "now", service: { ActiveState: "active" }, model_usage: { recent_requests: [{ requestId: "request-1", cacheReadRatio: 0.75, cacheHit: true }], recent_requests_page: { limit: 20, offset: 0, has_more: false } }, delivery_outbox: { pending_deliveries: 1 } })).content[0].text;
+  const processes = buildCoreResult("observe", "processes", succeeded({ count: 1, processes: [{ pid: 123, command: "node" }] })).content[0].text;
   assert.match(file, /hello/);
   assert.match(file, /SHA-256: abc/);
   assert.match(logs, /real log line/);
   assert.match(search, /\/tmp\/a/);
-  assert.match(cyberboss, /ActiveState/);
-  assert.match(cyberboss, /pending_deliveries/);
-  assert.match(cyberboss, /request-1/);
-  assert.match(cyberboss, /cacheReadRatio/);
+  assert.match(processes, /123/);
+  assert.match(processes, /node/);
 });
 
 test("text and structured results remain independently bounded", () => {
@@ -48,22 +46,4 @@ test("text and structured results remain independently bounded", () => {
   assert.ok(Buffer.byteLength(JSON.stringify(result.structuredContent)) <= MAX_STRUCTURED_BYTES + 512);
   assert.equal(result.structuredContent.truncated, true);
   assert.match(result.content[0].text, /truncated/);
-});
-
-test("small Cyberboss request pages survive the MCP byte bound without losing the snapshot", () => {
-  const request = {
-    recordedAt: "2026-08-26T00:00:00.000Z", requestId: "request-1", taskId: "task-1", runId: "run-1",
-    source: "checkin", kind: "wake_main", model: "model-1", provider: "provider-1", status: "completed",
-    retryCount: 0, reason: "", inputTokens: 100, cacheReadInputTokens: 900, cacheCreationInputTokens: 0,
-    outputTokens: 50, totalTokens: 1050, fixedPrefixFingerprint: "f".repeat(64), toolCatalogFingerprint: "t".repeat(64),
-    cacheEligibleInputTokens: 1000, cacheReadRatio: 0.9, cacheHit: true,
-  };
-  const result = buildCoreResult("observe", "cyberboss", succeeded({
-    generated_at: "now", window_hours: 3, service: { ActiveState: "active" }, resources: { memory: { free_bytes: 1 } },
-    model_usage: { window_records: 1, totals: { totalTokens: 1050 }, by_kind: { wake_main: { requestCount: 1 } }, top_runs: [{ runId: "run-1" }], recent_requests: [request], recent_requests_page: { offset: 0, limit: 1, returned: 1, total: 1, has_more: false, next_offset: null } },
-    work_runs: { window_records: 0, by_status: {}, active: [], recent_failures: [] }, delivery_outbox: {}, background_continuity: {}, journal: "ok",
-  }));
-  assert.equal(result.structuredContent.truncated, false);
-  assert.equal(result.structuredContent.data.model_usage.recent_requests[0].requestId, "request-1");
-  assert.match(result.content[0].text, /request-1/);
 });

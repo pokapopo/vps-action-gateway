@@ -10,7 +10,6 @@ const READ_VIEWS = Object.freeze({
 
 const OBSERVE_VIEWS = Object.freeze({
   system: "getSystemOverview",
-  cyberboss: "getCyberbossMonitorSnapshot",
   logs: "queryLogs",
   processes: "getProcessList",
 });
@@ -46,7 +45,6 @@ const BACKEND_TO_CORE = Object.freeze({
   searchFiles: ["read", ["view", "search"]],
   readFile: ["read", ["view", "file"]],
   getSystemOverview: ["observe", ["view", "system"]],
-  getCyberbossMonitorSnapshot: ["observe", ["view", "cyberboss"]],
   queryLogs: ["observe", ["view", "logs"]],
   getProcessList: ["observe", ["view", "processes"]],
   writeFile: ["edit", ["action", "write"]],
