@@ -1,6 +1,8 @@
 "use strict";
 
 process.env.VPS_ACTION_IDEMPOTENCY_PATH = `/tmp/vps-action-idempotency-test-${process.pid}.json`;
+process.env.VPS_ACTION_JOB_ROOT = `/tmp/vps-action-jobs-test-${process.pid}`;
+process.env.VPS_ACTION_TRASH_ROOT = `/tmp/vps-action-trash-test-${process.pid}`;
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -14,7 +16,11 @@ const { catalogMetadata } = require("../tool-catalog");
 const root = "/tmp/vps-action-feasibility";
 
 test.before(async () => { await fsp.mkdir(root, { recursive: true }); });
-test.after(async () => { await fsp.rm(process.env.VPS_ACTION_IDEMPOTENCY_PATH, { force: true }); });
+test.after(async () => {
+  await fsp.rm(process.env.VPS_ACTION_IDEMPOTENCY_PATH, { force: true });
+  await fsp.rm(process.env.VPS_ACTION_JOB_ROOT, { recursive: true, force: true });
+  await fsp.rm(process.env.VPS_ACTION_TRASH_ROOT, { recursive: true, force: true });
+});
 
 test("write/read uses SHA conflict protection and redaction", async () => {
   const filePath = path.join(root, `backend-test-${process.pid}.txt`);
@@ -58,12 +64,17 @@ test("healthCheck reports the live shared tool catalog", async () => {
 });
 
 test("identity material is readable without approval and its writes escalate to approval, not a hard deny", async () => {
-  const read = await dispatch("readFile", { path: "/etc/shadow" });
+  const directory = path.join(root, `identity-test-${process.pid}`);
+  const target = path.join(directory, ".env.test");
+  await fsp.mkdir(directory, { recursive: true });
+  await fsp.writeFile(target, "TOKEN=test-value\n");
+  const read = await dispatch("readFile", { path: target });
   assert.equal(read.status, "succeeded");
   await assert.rejects(
-    dispatch("writeFile", { path: "/etc/shadow", content: "blocked", expected_sha256: read.data.sha256 }),
+    dispatch("writeFile", { path: target, content: "TOKEN=changed\n", expected_sha256: read.data.sha256 }),
     (error) => error.code === "approval_required" && error.status === 409 && Boolean(error.details?.approval_token),
   );
+  await fsp.rm(directory, { recursive: true, force: true });
 });
 
 test("sensitive in-root writes are approvable, never refused outright", async () => {
