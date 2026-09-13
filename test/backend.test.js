@@ -3,6 +3,7 @@
 process.env.VPS_ACTION_IDEMPOTENCY_PATH = `/tmp/vps-action-idempotency-test-${process.pid}.json`;
 process.env.VPS_ACTION_JOB_ROOT = `/tmp/vps-action-jobs-test-${process.pid}`;
 process.env.VPS_ACTION_TRASH_ROOT = `/tmp/vps-action-trash-test-${process.pid}`;
+process.env.VPS_ACTION_JOB_USER = process.env.USER || "root";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -15,7 +16,11 @@ const { catalogMetadata } = require("../tool-catalog");
 
 const root = "/tmp/vps-action-feasibility";
 
-test.before(async () => { await fsp.mkdir(root, { recursive: true }); });
+test.before(async () => {
+  await fsp.mkdir(root, { recursive: true });
+  await fsp.mkdir(process.env.VPS_ACTION_JOB_ROOT, { recursive: true });
+  await fsp.mkdir(process.env.VPS_ACTION_TRASH_ROOT, { recursive: true });
+});
 test.after(async () => {
   await fsp.rm(process.env.VPS_ACTION_IDEMPOTENCY_PATH, { force: true });
   await fsp.rm(process.env.VPS_ACTION_JOB_ROOT, { recursive: true, force: true });
