@@ -305,7 +305,11 @@ async function startJob(args, action = "startJob") {
   const jobId = crypto.randomUUID();
   const outputPath = path.join(JOB_ROOT, `${jobId}.log`);
   const output = fs.createWriteStream(outputPath, { flags: "wx", mode: 0o640 });
-  const child = spawn("/usr/sbin/runuser", ["-u", JOB_USER, "--", "/bin/bash", "--noprofile", "--norc", "-c", args.command], {
+  const executable = process.getuid?.() === 0 ? "/usr/sbin/runuser" : "/bin/bash";
+  const commandArgs = process.getuid?.() === 0
+    ? ["-u", JOB_USER, "--", "/bin/bash", "--noprofile", "--norc", "-c", args.command]
+    : ["--noprofile", "--norc", "-c", args.command];
+  const child = spawn(executable, commandArgs, {
     cwd,
     detached: true,
     env: { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8", HOME: ALLOWED_ROOT },
